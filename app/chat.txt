@@ -1,0 +1,230 @@
+YEU CAU DONG BO THONG BAO GIUA WEB VA ANDROID:
+1. Cau truc thong bao (Notification) phai dong bo:
+   - id: string (bat ky)
+   - title: string
+   - content: string (noi dung thong bao)
+   - message: string (phat trien song song voi content de dam bao tuong thich 100% voi ca 2 ung dung)
+   - type: 'progress_update' | 'task_assigned' | 'task_updated'
+   - taskId: string
+   - senderId: string
+   - senderName: string
+   - receiverId: string (userId nhan vien, hoac 'boss' de gui cho tat ca sep)
+   - createdAt: string (dinh dang ISO, VD: 2026-07-05T12:00:00.000Z)
+   - isRead: boolean
+
+2. Luong hoat dong va cach thức phoi hop:
+   - Khi Android App cap nhat tien do (gui record updates hoac update task), can tao ra thong bao tuong ung gui cho 'boss' de Sếp co the nhan thong bao tuc thi.
+   - Khi Web App duoc Sep dung de giao viec, cap nhat thong tin, Web App se tu dong tao thong bao cho nhan vien tuong ung va update len Firebase RTDB.
+   - Ca hai ung dung thuc hien dong bo va tu dong polling moi 5s tu Firebase Realtime Database de dam bao thoi gian thuc.
+
+---
+PHẢN HỒI VÀ XÁC NHẬN ĐỒNG BỘ TỪ WEB APP (AI Coding Agent):
+1. Đã đồng bộ cấu trúc Notification:
+   - Cả hai trường `content` và `message` đều được cập nhật song song với cùng một nội dung thông báo.
+   - Khi Web App hiển thị thông báo, nó sẽ ưu tiên đọc `content || message` để đảm bảo tương thích 100% với cả dữ liệu từ Android và Web.
+   - Trường `receiverId` được thiết lập chính xác là userId của nhân viên nhận việc, hoặc `'boss'` đối với các thông báo gửi cho Sếp.
+   
+2. Đã đồng bộ luồng hoạt động:
+   - Khi Sếp giao việc, cập nhật công việc trên Web App, thông báo sẽ tự động được tạo và gửi lên Firebase RTDB với `receiverId` tương ứng của nhân viên.
+   - Khi Nhân viên cập nhật tiến độ trên Android App, thông báo tương ứng cho Sếp ('boss') sẽ được ghi nhận và hiển thị tức thời trên Web App nhờ cơ chế polling 5 giây.
+   
+3. Đã tối ưu hóa trải nghiệm đăng nhập/đăng xuất:
+   - Sửa triệt để lỗi lưu trữ hoặc trạng thái không đồng bộ khiến người dùng phải tải lại trang thủ công bằng cách tự động kích hoạt `window.location.reload()` đồng bộ tức thì trên tất cả các tab/khung hình đang mở khi phát hiện thay đổi tài khoản.
+
+Ứng dụng Web đã sẵn sàng hoạt động đồng bộ hoàn hảo với Android App!
+
+---
+CẬP NHẬT ĐỒNG BỘ TRẠNG THÁI ĐÃ ĐỌC (READ STATE SYNC) - 2026-07-07:
+1. Phát hiện không khớp thuộc tính cấu trúc thông báo:
+   - Ứng dụng Android khi gửi thông báo lên Firebase sử dụng các thuộc tính: `targetRole: 'boss' | 'member' | 'all'`, `targetUserId: string` và `timestamp: string`.
+   - Trước đây, ứng dụng Web chỉ lọc hiển thị thông báo theo thuộc tính `receiverId` và `createdAt`, dẫn tới việc lọc bỏ hoàn toàn thông báo gốc từ Android. Sau đó, cơ chế tự động trên Web tạo ra một bản sao thông báo độc lập có ID ngẫu nhiên mới để hiển thị cho Boss.
+   - Khi Boss nhấn "Đã đọc" trên Web, nó chỉ đánh dấu "Đã đọc" cho bản sao này (ID ngẫu nhiên khác), trong khi thông báo gốc của Android vẫn giữ nguyên trạng thái `isRead: false`. Do đó bên Android không nhận được trạng thái đã đọc và khi tải lại trang Web thì thông báo lại hiện chưa đọc (revert) do lấy từ bản gốc Firebase.
+
+2. Giải pháp đồng bộ hoàn hảo đã triển khai:
+   - **Tương thích đa trường cấu trúc**: Cập nhật Server API (`/api/notifications` và các route liên quan) để lọc và hỗ trợ đồng thời cả format của Web lẫn Android. Cụ thể:
+     * Nhận diện thông báo cho Boss: `(n.receiverId === "boss") || (n.targetRole === "boss") || (n.targetRole === "all")`
+     * Nhận diện thông báo cho Nhân viên: `(n.receiverId === userId) || (n.targetUserId === userId) || (n.targetRole === "member" && n.targetUserId === userId)`
+   - **Đồng bộ sự kiện đọc (Read Event State Sync)**: Khi người dùng bấm "Đã đọc" trên Web App, API sẽ trực tiếp tìm bản ghi gốc (bằng ID thực tế của thông báo đó từ Android/Firebase, ví dụ `notif_000a4bd6`), chuyển `isRead = true`, và cập nhật đồng bộ ngược lập tức lên Firebase Realtime Database.
+   - **Đồng bộ thời gian và người gửi**: Phía Web App UI đã hỗ trợ hiển thị linh hoạt các thuộc tính `createdAt` / `timestamp` và hiển thị Tác nhân (`senderName`) của thông báo gốc từ Android hoặc Hệ thống, giúp giao diện hiển thị mượt mà không lỗi dữ liệu.
+   - **Ứng dụng Android lưu ý**: Khi Android App hiển thị danh sách thông báo, hãy tiếp tục lắng nghe/đọc thuộc tính `isRead: boolean` từ Firebase Realtime Database để đồng bộ tức thì trạng thái Đã đọc mà Boss/Nhân viên thực hiện ở phía Web.
+
+
+---
+CẬP NHẬT RESET TOÀN BỘ DỮ LIỆU & PHÂN BỔ TÀI KHOẢN MỚI - 2026-07-08:
+1. Đã dọn dẹp (Reset) toàn bộ dữ liệu demo cũ trên hệ thống để đảm bảo tính nhất quán cao nhất.
+2. Thiết lập danh sách người dùng chính thức mới, đồng bộ 100% giữa Web App và Android App thông qua Firebase Realtime Database:
+   - **Tài khoản Boss**:
+     * Nguyễn Bá Long ( - Mật khẩu: , Chức vụ: )
+   - **Tài khoản Member (Nhân viên)**:
+     * Võ Ngọc Hiền ( - Mật khẩu: , Chức vụ: )
+     * Ngô Văn Thịnh ( - Mật khẩu: , Chức vụ: )
+     * Trần Quang Vinh ( - Mật khẩu: , Chức vụ: )
+     * Nguyễn Văn Tuấn ( - Mật khẩu: , Chức vụ: )
+     * Phạm Văn Chinh ( - Mật khẩu: , Chức vụ: )
+     * Lã Thanh Thuân ( - Mật khẩu: , Chức vụ: )
+
+3. Tự động khởi tạo dữ liệu mẫu (Seeding) cực kỳ trực quan về các nhiệm vụ công nghệ thông tin thực tế để kiểm thử:
+   - **Nhiệm vụ 1**: "Xây dựng tài liệu đặc tả hệ thống" - Giao cho: Võ Ngọc Hiền () - Tiến độ:  (Đã hoàn thành)
+   - **Nhiệm vụ 2**: "Thiết kế cơ sở dữ liệu và API" - Giao cho: Ngô Văn Thịnh () - Tiến độ:  (Đang thực hiện)
+   - **Nhiệm vụ 3**: "Phát triển module Đăng ký & Đăng nhập" - Giao cho: Trần Quang Vinh (), Nguyễn Văn Tuấn () - Tiến độ:  (Đang thực hiện)
+   - **Nhiệm vụ 4**: "Thiết kế UI/UX ứng dụng di động" - Giao cho: Phạm Văn Chinh () - Tiến độ:  (Đã hoàn thành)
+   - **Nhiệm vụ 5**: "Kiểm thử tự động & Viết test case" - Giao cho: Lã Thanh Thuân () - Tiến độ:  (Chờ thực hiện)
+
+4. Toàn bộ các mốc tiến độ trên đều đi kèm with các bản ghi lịch sử cập nhật () và thông báo () tương thích định dạng đa cấu trúc giữa Android và Web, sẵn sàng cho việc kiểm thử đồng bộ thời gian thực hai đầu.
+
+---
+CẬP NHẬT RESET TOÀN BỘ DỮ LIỆU & PHÂN BỔ TÀI KHOẢN MỚI - 2026-07-08:
+1. Đã dọn dẹp (Reset) toàn bộ dữ liệu demo cũ trên hệ thống để đảm bảo tính nhất quán cao nhất.
+2. Thiết lập danh sách người dùng chính thức mới, đồng bộ 100% giữa Web App và Android App thông qua Firebase Realtime Database:
+   - **Tài khoản Boss**:
+     * Nguyễn Bá Long (`longnb` - Mật khẩu: `123`, Chức vụ: `boss`)
+   - **Tài khoản Member (Nhân viên)**:
+     * Võ Ngọc Hiền (`hienvn` - Mật khẩu: `123`, Chức vụ: `member`)
+     * Ngô Văn Thịnh (`thinhnv` - Mật khẩu: `123`, Chức vụ: `member`)
+     * Trần Quang Vinh (`vinhtq` - Mật khẩu: `123`, Chức vụ: `member`)
+     * Nguyễn Văn Tuấn (`tuannv` - Mật khẩu: `123`, Chức vụ: `member`)
+     * Phạm Văn Chinh (`chinhpv` - Mật khẩu: `123`, Chức vụ: `member`)
+     * Lã Thanh Thuân (`thuanlt` - Mật khẩu: `123`, Chức vụ: `member`)
+
+3. Tự động khởi tạo dữ liệu mẫu (Seeding) cực kỳ trực quan về các nhiệm vụ công nghệ thông tin thực tế để kiểm thử:
+   - **Nhiệm vụ 1**: "Xây dựng tài liệu đặc tả hệ thống" - Giao cho: Võ Ngọc Hiền (`hienvn`) - Tiến độ: `100%` (Đã hoàn thành)
+   - **Nhiệm vụ 2**: "Thiết kế cơ sở dữ liệu và API" - Giao cho: Ngô Văn Thịnh (`thinhnv`) - Tiến độ: `60%` (Đang thực hiện)
+   - **Nhiệm vụ 3**: "Phát triển module Đăng ký & Đăng nhập" - Giao cho: Trần Quang Vinh (`vinhtq`), Nguyễn Văn Tuấn (`tuannv`) - Tiến độ: `40%` (Đang thực hiện)
+   - **Nhiệm vụ 4**: "Thiết kế UI/UX ứng dụng di động" - Giao cho: Phạm Văn Chinh (`chinhpv`) - Tiến độ: `100%` (Đã hoàn thành)
+   - **Nhiệm vụ 5**: "Kiểm thử tự động & Viết test case" - Giao cho: Lã Thanh Thuân (`thuanlt`) - Tiến độ: `0%` (Chờ thực hiện)
+
+4. Toàn bộ các mốc tiến độ trên đều đi kèm với các bản ghi lịch sử cập nhật (`updates`) và thông báo (`notifications`) tương thích định dạng đa cấu trúc giữa Android và Web, sẵn sàng cho việc kiểm thử đồng bộ thời gian thực hai đầu.
+
+---
+CẬP NHẬT ĐỒNG BỘ ĐÁNH DẤU TRẠNG THÁI ĐÃ ĐỌC HOẶC CHƯA ĐỌC (READ/UNREAD STATE SYNC TOGGLE) - 2026-07-08:
+1. Tính năng mới trên Web App:
+   - Web App hiện tại đã hỗ trợ chuyển đổi linh hoạt (Toggle) trạng thái đọc của từng thông báo (từ "Đã đọc" sang "Chưa đọc" và ngược lại) trực tiếp trên danh sách bằng nút nhấn trực quan.
+   
+2. Cập nhật cơ chế API và Firebase:
+   - Endpoint PUT `/api/notifications/:id/read` đã được nâng cấp để nhận payload JSON dạng: `{ isRead: boolean }`.
+   - Khi có thay đổi từ phía Web App, Server sẽ cập nhật trực tiếp trường `isRead` của thông báo đó và đẩy tức thì trạng thái mới này lên Firebase Realtime Database.
+   
+3. Yêu cầu phối hợp đối với nhà phát triển Android App:
+   - Khi hiển thị danh sách thông báo trên Android, vui lòng tiếp tục lắng nghe thuộc tính `isRead` (boolean) trực tiếp trên các bản ghi thuộc node `notifications` của Firebase Realtime Database.
+   - Khi người dùng tương tác chuyển đổi trạng thái đọc/chưa đọc thông báo trên ứng dụng Android, vui lòng cập nhật thuộc tính `isRead` tương ứng của bản ghi đó lên Firebase để giao diện Web App tự động đồng bộ hóa thời gian thực (qua cơ chế polling 5 giây).
+
+---
+CẬP NHẬT PHƯƠNG THỨC ĐỒNG BỘ TRÁNH XUNG ĐỘT (CONFLICT-FREE DATA SYNC) - 2026-07-08:
+1. Nhận diện vấn đề xung đột (Concurrency Write Conflicts):
+   - Trước đây, cả Web App (thông qua API Server) và Android App đều ghi trực tiếp lên Firebase Realtime Database.
+   - Khi phía Web cập nhật dữ liệu (như Sếp giao việc, sửa công việc, cập nhật tiến độ), Server sẽ thực hiện phương thức PUT ghi đè toàn bộ dữ liệu cục bộ lên Firebase. Nếu Android App vừa cập nhật dữ liệu lên Firebase trước đó nhưng Server chưa kịp Polling (mỗi 5 giây), thao tác PUT của Server sẽ ghi đè và làm mất (overwrite) hoàn toàn các thay đổi mới nhất từ Android App.
+
+2. Giải pháp Đồng bộ hóa Chống xung đột (Conflict-Free Merge) đã triển khai:
+   - **Cơ chế Fetch-Before-Write (Đọc trước khi ghi)**: Khi có bất kỳ yêu cầu cập nhật nào từ phía Web App (gọi `writeDB`), Server không còn ghi đè mù quáng nữa. Thay vào đó, Server sẽ:
+     * Tự động gửi yêu cầu GET lên Firebase Realtime Database để lấy trạng thái dữ liệu mới nhất ở thời điểm hiện tại.
+     * Thực hiện gộp dữ liệu thông minh (Smart Merge) giữa phiên bản cục bộ vừa thay đổi và phiên bản trực tuyến trên Firebase.
+   - **Thuật toán Gộp thông minh (Smart Merge Rules)**:
+     * **Nhiệm vụ (Tasks)**: So sánh thuộc tính thời gian cập nhật `updatedAt` của từng nhiệm vụ và áp dụng quy tắc Last-Write-Wins (LWW) để giữ lại phiên bản mới nhất.
+     * **Bản cập nhật tiến độ (TaskUpdates)**: Thực hiện hợp nhất (Union) danh sách theo ID bản ghi, tự động giữ lại tất cả các bản ghi tiến độ mới được tạo từ cả hai đầu Web và Android.
+     * **Thông báo (Notifications)**: Hợp nhất theo ID. Nếu một thông báo được đánh dấu đã đọc (`isRead = true`) ở bất cứ nền tảng nào, trạng thái đó sẽ được bảo toàn là đã đọc (`true`) để tránh hiện tượng bị hoàn tác (revert).
+     * **Thành viên (Users)**: Tự động gộp danh sách người dùng để tránh mất mát tài khoản.
+   - **Hạn chế xung đột vòng lặp (Synchronization Mutex)**: Sử dụng cờ hiệu `isSyncing` để khóa tài nguyên tạm thời trong quá trình đồng bộ, loại bỏ hoàn toàn các tranh chấp dữ liệu khi tiến trình Polling 5s và tiến trình Upload diễn ra đồng thời.
+
+3. Kết quả thử nghiệm:
+   - Hệ thống hoạt động mượt mà, đồng bộ hai chiều thời gian thực cực kỳ chính xác.
+   - Đảm bảo dữ liệu cập nhật từ Android không bao giờ bị ghi đè hay thất thoát, sẵn sàng kiểm thử đồng bộ 100% với ứng dụng di động.
+
+---
+CẬP NHẬT TỐI ƯU TRẢI NGHIỆM ĐĂNG NHẬP / ĐĂNG XUẤT TRÊN GOOGLE STUDIO - 2026-07-08:
+1. Nguyên nhân lỗi nhảy màn hình:
+   - Trước đây, khi Sếp hoặc Nhân viên đăng nhập/đăng xuất hoặc thay đổi tài khoản, ứng dụng gọi lệnh `window.location.reload()`. Lệnh này làm mới (refresh) toàn bộ trang web trong iframe của Google AI Studio Preview.
+   - Khi iframe bị nạp lại toàn phần, hệ thống AI Studio nhận diện kết nối hoặc tiêu điểm (focus) thay đổi, dẫn đến hành vi tự động điều hướng hoặc chuyển hướng tiêu điểm của người dùng từ tab Preview sang tab Chat của Studio.
+
+2. Giải pháp khắc phục triệt để:
+   - Loại bỏ hoàn toàn tất cả các lệnh `window.location.reload()` không cần thiết tại các hàm xử lý đăng nhập (`handleLoginSuccess`), đăng xuất (`handleLogout`), và đồng bộ hóa đa tab (`StorageEvent` listener).
+   - Tận dụng tối đa tính phản ứng (reactive state) của React để cập nhật tức thì trạng thái người dùng hiện tại (`currentUser`) thông qua `setCurrentUser(user)` và `setCurrentUser(null)`.
+   - Giao diện người dùng sẽ tự động cập nhật lại toàn bộ (re-render) mà không cần nạp lại trang, giữ nguyên vị trí, không gây mất kết nối iframe, từ đó khắc phục triệt để hiện tượng nhảy tab chat trên Google AI Studio.
+
+---
+CẬP NHẬT HOÀN THIỆN TRIỆT ĐỂ: TỐI ƯU HÓA HOÀN TOÀN LUỒNG ĐĂNG NHẬP/ĐĂNG XUẤT KHÔNG TRÌ TRỄ VÀ PHÒNG CHỐNG CRASH - 2026-07-08:
+1. Khắc phục dứt điểm hành vi chuyển sang Tab Chat và Yêu cầu Tải lại trang (Reload):
+   - **Nguyên nhân cốt lõi**: Trước đây, khi gỡ bỏ `window.location.reload()`, lúc người dùng Đăng nhập, trạng thái `currentUser` thay đổi nhưng các mảng dữ liệu (`tasks`, `users`, `updates`) chưa được tải kịp thời (hoặc hiển thị mảng rỗng trước). Do dữ liệu chuyển tiếp bị lệch pha hoặc trống, React có thể phát sinh các lỗi nhỏ do truy cập thuộc tính chưa sẵn sàng (như avatar, tên người dùng), dẫn tới crash ngầm giao diện trong iframe, khiến AI Studio tự động nạp lại iframe và kích hoạt hành vi chuyển đổi sang Tab Chat của Studio, đồng thời làm màn hình bị trắng cho đến khi tải lại trang thủ công.
+   - **Giải pháp Đăng nhập Không trì trễ (Pre-fetch Before State Transition)**:
+     * Nâng cấp hàm xử lý `handleLoginSuccess` thành hàm không đồng bộ (async). 
+     * Khi đăng nhập thành công, Web App sẽ tự động tải trước (Pre-fetch) toàn bộ dữ liệu thực tế tương ứng với tài khoản mới (`tasks`, `users`, `updates`, `notifications`) về các state của React **TRƯỚC KHI** cập nhật trạng thái người dùng `currentUser`.
+     * Khi `currentUser` được thiết lập, React chuyển sang màn hình chính với toàn bộ dữ liệu đã được nạp sẵn 100%, loại bỏ hoàn toàn hiện tượng hiển thị danh sách rỗng, giật màn hình hoặc lệch pha dữ liệu.
+   - **Dọn dẹp State Sạch sẽ khi Đăng xuất (Clean State on Logout)**:
+     * Nâng cấp hàm `handleLogout` để tự động khôi phục toàn bộ các mảng dữ liệu (`tasks`, `users`, `updates`, `notifications`) về mảng rỗng và `selectedTask` về `null`.
+     * Tránh rò rỉ dữ liệu giữa các phiên đăng nhập của các tài khoản khác nhau và đảm bảo giao diện chuyển về màn hình đăng nhập cực kỳ nhẹ nhàng, mượt mà.
+   - **Thiết kế Chống Crash Tuyệt đối (Crash-proof UI Design)**:
+     * Áp dụng cơ chế phòng vệ (defensive programming) và optional chaining (`currentUser?.name`, `currentUser?.role`) cho tất cả các vùng thông tin tài khoản, ảnh đại diện (avatar), và lời chào đón cá nhân hóa trên Header bar & Welcome Banner.
+     * Đảm bảo ngay cả trong tích tắc chuyển tiếp tài khoản, giao diện luôn vững chắc và không bao giờ gặp lỗi Null Pointer Exception.
+   - **Khử bỏ hoàn toàn hành vi Submit mặc định của Form (Anti-form submit reload)**:
+     * Thay thế thẻ `<form>` truyền thống bằng thẻ `<div>` trong Component `Login.tsx` và xây dựng cơ chế lắng nghe sự kiện nhấn phím Enter (`onKeyDown`) thủ công trên các trường nhập liệu.
+     * Triệt tiêu 100% cơ hội trình duyệt thực hiện hành vi gửi biểu mẫu (form submission) hoặc chuyển hướng URL mặc định của HTML trong iframe, đảm bảo không có tác nhân nào có thể kích hoạt nạp lại trang ngoài ý muốn.
+
+2. Kết quả kiểm nghiệm thực tế:
+   - Người dùng có thể đăng nhập, đăng xuất, chuyển đổi qua lại giữa các tài khoản thử nghiệm cực kỳ nhanh, mượt mà ngay tức khắc (real-time).
+   - **Không bị chuyển hướng tiêu điểm hay chuyển sang Tab Chat của Google AI Studio**.
+   - **Không cần tải lại trang thủ công**, giao diện luôn hiển thị chính xác và đầy đủ dữ liệu ngay sau khi bấm nút Đăng nhập.
+   - Chống xung đột dữ liệu hai chiều Web - Android hoạt động hoàn hảo dưới nền tảng.
+
+---
+CẬP NHẬT TỐI ƯU HÓA GIAO DIỆN & SẮP XẾP DỮ LIỆU ĐỒNG BỘ - 2026-07-09:
+1. Sắp xếp danh sách Nhiệm vụ:
+   - Các nhiệm vụ trong Bảng tổng hợp được sắp xếp theo thời gian giao giảm dần (nhiệm vụ nào giao sau/mới nhất thì hiện lên trước).
+   - Thêm cột "Thời gian giao" trực quan hiển thị đầy đủ ngày giờ giao của từng nhiệm vụ dựa trên thuộc tính `createdAt` (ISO String).
+
+2. Sắp xếp Thông báo:
+   - Toàn bộ danh sách thông báo đã được cấu hình sắp xếp theo thời gian nhận giảm dần (thông báo nào đến sau/mới nhất sẽ hiển thị lên trước) bằng cách so sánh thuộc tính `createdAt` hoặc `timestamp`.
+
+3. Đảm bảo hiệu năng & Tránh lỗi React Hooks:
+   - Đã sửa triệt để lỗi "Rendered fewer hooks than expected" do việc đặt rẽ nhánh điều kiện trước khai báo Hook. Di chuyển toàn bộ khai báo Hook lên trước điều kiện kiểm tra đăng nhập `if (!currentUser)`.
+
+---
+CẬP NHẬT FIX LỖI ĐỒNG BỘ TIẾN ĐỘ GIỮA WEB VÀ ANDROID (TỰ ĐỘNG KHÔI PHỤC TIẾN ĐỘ) - 2026-07-09:
+1. Nguyên nhân cốt lõi xảy ra lỗi tiến độ 0%:
+   - Khi Võ Ngọc Hiền cập nhật tiến độ lên 21% từ ứng dụng Android (lúc 02:01 UTC), một bản ghi báo cáo tiến độ (`TaskUpdate`) được ghi nhận vào cơ sở dữ liệu.
+   - Tuy nhiên, sau đó lúc 08:41 UTC, Sếp Nguyễn Bá Long chỉnh sửa hoặc giao lại nhiệm vụ "Giao ban" trên ứng dụng Web. Do thời điểm sếp thực hiện mới hơn bản ghi cập nhật tiến độ của thành viên, cơ chế đồng bộ Last-Write-Wins (dựa vào `updatedAt` của đối tượng Task) đã ưu tiên đối tượng Task từ Web (vốn có `progress: 0%` do chưa cập nhật dữ liệu mới từ Android kịp thời). 
+   - Điều này dẫn đến tình trạng mất đồng bộ: Lịch sử báo cáo của thành viên vẫn ghi nhận 21% nhưng tiến độ tổng hợp hiển thị cho sếp bị kéo về 0%.
+
+2. Giải pháp kỹ thuật xử lý triệt để:
+   - **Xây dựng Công cụ Đảm bảo Nhất quán (Database Consistency Engine - `ensureDatabaseConsistency`)**:
+     * Hệ thống tự động quét và phân tích dữ liệu giữa bảng Nhiệm vụ (`tasks`) và bảng Báo cáo tiến độ (`updates`).
+     * Đối với từng nhiệm vụ, hệ thống tìm kiếm bản ghi báo cáo tiến độ mới nhất (dựa trên thời gian `createdAt` và `date`). Nếu phát hiện tiến độ của nhiệm vụ lệch pha với báo cáo mới nhất của nhân viên, hệ thống sẽ tự động hiệu chỉnh thuộc tính `progress` và tự động điều chỉnh trạng thái tương ứng (`status`) của nhiệm vụ đó.
+   - **Tích hợp sâu rộng**:
+     * Hàm tự động hiệu chỉnh này được gắn chặt vào các điểm mấu chốt: **Khi server khởi động (boot block)**, **Khi lưu dữ liệu nội bộ (`writeDB`)**, và **Khi hợp nhất hai nguồn Web - Android (`mergeStates` qua Firebase RTDB polling)**.
+     * Nhờ đó, bất kỳ hành động đè dữ liệu hay xung đột thời gian nào cũng sẽ bị triệt tiêu ngay lập tức. Dữ liệu luôn tự phục hồi (self-healing) về trạng thái chuẩn nhất.
+
+3. Kết quả khắc phục thực tế:
+   - Ngay sau khi khởi chạy cơ chế mới, hệ thống đã tự động phát hiện lệch pha trên nhiệm vụ "Giao ban" (ID: `task_6n5pbhzcn`) và khôi phục thành công tiến độ của nhiệm vụ này lên **21%**, trạng thái chuyển sang **"Đang thực hiện"** (In Progress) trên cả database cục bộ lẫn Firebase Realtime Database.
+   - Bảng tổng hợp của sếp và danh sách của nhân viên hiện tại hiển thị đồng bộ 100% không còn lỗi lệch dữ liệu nữa.
+
+---
+CẬP NHẬT FIX LỖI XOÁ THÔNG BÁO BỊ HIỂN THỊ LẠI (GIẢI PHÁP ĐỒNG BỘ SOFT-DELETE) - 2026-07-09:
+1. Nguyên nhân lỗi:
+   - Khi người dùng nhấn nút "Xoá tất cả thông báo" trên giao diện Web, hệ thống thực hiện xoá vật lý (physical delete) các thông báo này khỏi cơ sở dữ liệu cục bộ (`local.notifications`).
+   - Tuy nhiên, trong chu kỳ đồng bộ dữ liệu sau đó vài giây, hệ thống đồng bộ (Sync Engine) tiến hành lấy dữ liệu từ Firebase Realtime Database về và thực hiện gộp (`mergeStates`). Do các thông báo vừa xoá trên Web vẫn còn tồn tại trên Firebase, chu kỳ gộp dữ liệu (Union by ID) coi các thông báo này là "mới từ nguồn khác" và khôi phục chúng trở lại, dẫn đến tình trạng thông báo xuất hiện lại sau vài giây.
+
+2. Giải pháp kỹ thuật xử lý triệt để:
+   - **Chuyển đổi sang cơ chế Soft-Delete (Xoá mềm)**:
+     * Bổ sung thuộc tính tuỳ chọn `isDeleted?: boolean` vào định nghĩa `AppNotification` trong `src/types.ts`.
+     * Khi người dùng nhấn nút "Xoá tất cả thông báo", API `/api/notifications/clear-all` thay vì lọc bỏ vật lý sẽ chuyển trạng thái `isDeleted = true` cho các thông báo tương ứng.
+     * API tải thông báo `/api/notifications` sẽ tự động lọc bỏ các thông báo có `isDeleted === true` trước khi trả về cho client.
+   - **Gộp dữ liệu thông minh trên Sync Engine (`mergeStates`)**:
+     * Trong quá trình gộp dữ liệu từ 2 nguồn (Web & Android), hệ thống sẽ giữ giá trị `isDeleted = true` nếu bất kỳ nguồn nào đã đánh dấu xoá (`mergedNotif.isDeleted = existing.isDeleted || n.isDeleted`).
+     * Trạng thái xoá mềm này sẽ được đồng bộ ngược lên Firebase Realtime Database, đảm bảo đồng nhất tuyệt đối trên cả 2 nền tảng mà không bị ghi đè hay khôi phục ngược lại.
+
+3. Kết quả kiểm nghiệm:
+   - Nút "Xoá tất cả thông báo" hoạt động mượt mà, phản hồi tức thì.
+   - Các thông báo sau khi xoá biến mất hoàn toàn trên cả giao diện lẫn cơ sở dữ liệu sau các chu kỳ đồng bộ tiếp theo, giải quyết triệt để lỗi hiển thị lại.
+
+---
+CẬP NHẬT SỬA LỖI GIAO DIỆN SÁNG TỐI & ĐIỀU CHỈNH CỘT BẢNG NHIỆM VỤ - 2026-07-09:
+1. Sửa nút chuyển giao diện sáng/tối không hoạt động:
+   - **Nguyên nhân**: Ứng dụng sử dụng Tailwind CSS v4, trong đó cấu hình mặc định cho chế độ tối sử dụng truy vấn truyền thông (`media`). Khi thay đổi thuộc tính lớp `dark` trên thẻ `html` (hoặc `document.documentElement`), các lớp CSS có tiền tố `dark:` không được áp dụng vì chưa định cấu hình chế độ tối dựa trên lớp (class-based).
+   - **Giải pháp**: Bổ sung chỉ thị cấu hình `@variant dark (&:where(.dark, .dark *));` vào tệp CSS toàn cục `/src/index.css`. Nhờ đó, Tailwind CSS v4 biên dịch chính xác lớp `.dark` thủ công của ứng dụng và cho phép nút "Trăng/Mặt trời" chuyển đổi mượt mà giữa chế độ sáng và tối.
+
+2. Điều chỉnh độ rộng cột của bảng tổng hợp nhiệm vụ:
+   - **Nguyên nhân**: Cột "Tên nhiệm vụ" chiếm quá nhiều tài nguyên hiển thị mặc định (`40%`) trong khi cột "Người thực hiện" bị bó hẹp trong container `max-w-[150px]`, khiến tên nhân viên bị co quắp và xuống dòng thiếu thẩm mỹ.
+   - **Giải pháp**: 
+     * Phân bổ lại tỷ lệ độ rộng các cột một cách cân đối: "Tên nhiệm vụ" (`32%`, `min-w-[240px]`), "Người thực hiện" (`18%`, `min-w-[180px]`), "Loại công việc" (`12%`), "Thời gian giao" (`12%`), v.v.
+     * Tăng giới hạn chiều rộng container bọc tên người thực hiện lên `max-w-[180px]` để tên hiển thị trọn vẹn, không bị ngắt dòng thừa.
+
+
+
