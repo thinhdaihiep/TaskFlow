@@ -31,6 +31,22 @@ Hệ thống phân chia rõ ràng hai vai trò chính:
 
 ---
 
+## 👥 Danh Sách Tài Khoản Thử Nghiệm
+
+Mật khẩu mặc định cho tất cả tài khoản là: **`123`**
+*(Hệ thống đã tích hợp chức năng "Đăng nhập nhanh" trực tiếp tại màn hình Login giúp trải nghiệm mượt mà nhất)*
+
+| Tên Đăng Nhập | Vai Trò | Tên Nhân Sự | Phạm Vi Nhiệm Vụ Phụ Trách |
+| :--- | :--- | :--- | :--- |
+| **`longnb`** | Sếp (Quản trị) | Nguyễn Bá Long | Quản trị toàn bộ dự án, tạo & giao việc |
+| **`thinhnv`** | Nhân viên | Ngô Văn Thịnh | Thành viên nhóm |
+| **`vinhtq`** | Nhân viên | Trần Quang Vinh | Thành viên nhóm |
+| **`tuannv`** | Nhân viên | Nguyễn Văn Tuấn | Thành viên nhóm |
+| **`hienvn`** | Nhân viên | Võ Ngọc Hiền | Thành viên nhóm |
+| **`chinhpv`** | Nhân viên | Phạm Văn Chinh | Thành viên nhóm |
+
+---
+
 ## 🛠️ Hướng Dẫn Chạy Dự Án
 
 ### 1. Cài đặt các thư viện cần thiết:
