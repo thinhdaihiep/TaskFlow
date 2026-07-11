@@ -255,6 +255,19 @@ CẬP NHẬT MẶC ĐỊNH BỘ LỌC LỊCH SỬ & SẮP XẾP NHIỆM VỤ DAS
    - Áp dụng thuật toán sắp xếp theo thời gian giao giảm dần (`createdAt` mới nhất lên đầu) trực tiếp vào `tasksForSelectedYear`.
    - Giúp Dashboard của nhân viên và Dashboard của sếp có thứ tự hiển thị nhiệm vụ hoàn toàn đồng bộ, nhất quán (nhiệm vụ giao sau, mới nhất luôn nằm ở trên cùng).
 
+---
+HỖ TRỢ TRỰC TIẾP DEPLOYMENT TRÊN VERCEL (SMART DUAL-MODE API INTERCEPTOR) - 2026-07-11:
+1. Nguyên nhân lỗi:
+   - Vercel là nền tảng máy chủ tĩnh (static site hosting) và không tự động chạy file Node.js Express server (`server.ts` / `dist/server.cjs`) làm nền dưới dạng cổng port 3000 liên tục.
+   - Do đó, khi deploy lên Vercel, các request gọi đến `/api/...` bị trả về trang lỗi HTML 404 mặc định của Vercel dẫn đến lỗi `"Unexpected token 'T', 'The page c'... is not valid JSON"` trong giao diện frontend của bạn.
+
+2. Giải pháp thông minh:
+   - Viết một tệp tin interceptor `/src/utils/apiClient.ts` để chặn toàn bộ API request hướng đến `/api/...` và tự động kiểm tra xem máy chủ Express local có khả dụng hay không.
+   - Nếu KHÔNG khả dụng (ví dụ: đang chạy trên môi trường Vercel tĩnh), ứng dụng tự động chuyển sang chế độ **Direct Firebase Client Mode** - thực hiện trực tiếp mọi truy vấn và cập nhật (đăng nhập, danh sách thành viên, nhiệm vụ, tiến độ, thông báo, backup/restore) qua REST API đến Realtime Database của Firebase hoàn toàn ở phía client.
+   - Nếu Express khả dụng (chạy dev nội bộ hoặc container Cloud Run có hỗ trợ Express), ứng dụng vẫn ưu tiên đi qua cổng `/api/...` để tối ưu hiệu năng.
+   - Kích hoạt interceptor này ngay từ đầu tệp tin khởi tạo ứng dụng `/src/main.tsx` để bảo đảm độ bao phủ hoàn hảo 100%.
+
+
 
 
 
