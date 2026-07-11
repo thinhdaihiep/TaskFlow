@@ -226,5 +226,35 @@ CẬP NHẬT SỬA LỖI GIAO DIỆN SÁNG TỐI & ĐIỀU CHỈNH CỘT BẢNG 
      * Phân bổ lại tỷ lệ độ rộng các cột một cách cân đối: "Tên nhiệm vụ" (`32%`, `min-w-[240px]`), "Người thực hiện" (`18%`, `min-w-[180px]`), "Loại công việc" (`12%`), "Thời gian giao" (`12%`), v.v.
      * Tăng giới hạn chiều rộng container bọc tên người thực hiện lên `max-w-[180px]` để tên hiển thị trọn vẹn, không bị ngắt dòng thừa.
 
+---
+CẬP NHẬT XOÁ DANH SÁCH TÀI KHOẢN TRONG README & THÊM BỘ LỌC THỜI GIAN LỊCH SỬ - 2026-07-10:
+1. Xoá danh sách tài khoản thử nghiệm khỏi README.md:
+   - Đã loại bỏ hoàn toàn phần "Danh Sách Tài Khoản Thử Nghiệm" khỏi tệp `README.md` theo yêu cầu vì phần đăng nhập nhanh trực tiếp trên giao diện là quá đủ và bảo mật hơn.
+
+2. Thêm bộ lọc Ngày, Tuần, Tháng, Năm vào Lịch sử cập nhật công việc:
+   - **Giải pháp kỹ thuật**:
+     * Khởi tạo state mới `timelineTimeFilter` quản lý các giá trị lọc `"all" | "today" | "week" | "month" | "year"`.
+     * Cập nhật `filteredUpdates` useMemo để lọc lịch sử dựa trên hiệu số ngày với hằng số mốc thời gian hệ thống `TODAY_DATE`.
+     * "Hôm nay": Trùng `TODAY_DATE`.
+     * "Tuần": Chênh lệch ngày `< 7` (7 ngày gần nhất).
+     * "Tháng": Trùng tháng và năm của `TODAY_DATE`.
+     * "Năm": Trùng năm của `TODAY_DATE`.
+     * **Thiết kế UI/UX**: Tích hợp một thanh điều khiển bộ lọc dạng viên thuốc (pill switches) tinh gọn, trực quan có hiệu ứng chuyển trạng thái mượt mà nằm ngay bên trong thanh tiêu đề của mục Lịch sử.
+
+3. Tinh gọn giao diện Lịch sử cập nhật:
+   - Bỏ tiêu đề "NỘI DUNG THỰC HIỆN", hiển thị trực tiếp văn bản cập nhật để giao diện ngắn gọn, thoáng đãng.
+   - Ẩn hoàn toàn ô "Ghi chú" nếu không có dữ liệu ghi chú thay vì hiển thị "Không có" thừa thãi.
+
+---
+CẬP NHẬT MẶC ĐỊNH BỘ LỌC LỊCH SỬ & SẮP XẾP NHIỆM VỤ DASHBOARD NHÂN VIÊN - 2026-07-11:
+1. Mặc định bộ lọc thời gian Lịch sử là "Hôm nay":
+   - Thay đổi giá trị khởi tạo của `timelineTimeFilter` từ `"all"` thành `"today"`.
+   - Giúp danh sách lịch sử mặc định ngay lập tức tập trung vào các công việc cập nhật của ngày hôm nay, đem lại sự tập trung cao nhất cho quản trị và nhân sự.
+
+2. Sắp xếp đồng bộ danh sách nhiệm vụ trên Dashboard nhân viên:
+   - Áp dụng thuật toán sắp xếp theo thời gian giao giảm dần (`createdAt` mới nhất lên đầu) trực tiếp vào `tasksForSelectedYear`.
+   - Giúp Dashboard của nhân viên và Dashboard của sếp có thứ tự hiển thị nhiệm vụ hoàn toàn đồng bộ, nhất quán (nhiệm vụ giao sau, mới nhất luôn nằm ở trên cùng).
+
+
 
 

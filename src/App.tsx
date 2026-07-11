@@ -21,7 +21,57 @@ import {
 import AnnualStats from "./components/AnnualStats";
 import BackupRestore from "./components/BackupRestore";
 
-const TODAY_DATE = "2026-07-05"; // system constant representing current date
+const TODAY_DATE = "2026-07-11"; // system constant representing current date
+
+function getMondayAndSundayOfDate(dateStr: string) {
+  const d = new Date(dateStr);
+  const day = d.getDay(); // 0 is Sunday, 1 is Monday, ..., 6 is Saturday
+  // Go back to Monday
+  const diffToMonday = day === 0 ? -6 : 1 - day;
+  const monday = new Date(d);
+  monday.setDate(d.getDate() + diffToMonday);
+  monday.setHours(0, 0, 0, 0);
+
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  sunday.setHours(23, 59, 59, 999);
+
+  return { monday, sunday };
+}
+
+function formatDate(dateStr: string | null | undefined): string {
+  if (!dateStr) return "N/A";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    const [year, month, day] = dateStr.split("-");
+    return `${day}/${month}/${year}`;
+  }
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    const day = String(d.getDate()).padStart(2, "0");
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const year = d.getFullYear();
+    return `${day}/${month}/${year}`;
+  } catch {
+    return dateStr;
+  }
+}
+
+function formatDateTime(dateTimeStr: string | null | undefined): string {
+  if (!dateTimeStr) return "N/A";
+  try {
+    const d = new Date(dateTimeStr);
+    if (isNaN(d.getTime())) return dateTimeStr;
+    const day = String(d.getDate()).padStart(2, "0");
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const year = d.getFullYear();
+    const hours = String(d.getHours()).padStart(2, "0");
+    const minutes = String(d.getMinutes()).padStart(2, "0");
+    return `${day}/${month}/${year} ${hours}:${minutes}`;
+  } catch {
+    return dateTimeStr;
+  }
+}
 
 export default function App() {
   // Auth state
@@ -74,6 +124,7 @@ export default function App() {
   const [filterStatus, setFilterStatus] = useState("");
   const [filterType, setFilterType] = useState("");
   const [filterDateRange, setFilterDateRange] = useState({ start: "", end: "" });
+  const [timelineTimeFilter, setTimelineTimeFilter] = useState<"all" | "today" | "week" | "month" | "year">("today");
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -471,7 +522,12 @@ export default function App() {
 
   // Filter tasks belonging to the selected year
   const tasksForSelectedYear = useMemo(() => {
-    return tasks.filter(t => t.startDate && t.startDate.startsWith(selectedYear.toString()));
+    const list = tasks.filter(t => t.startDate && t.startDate.startsWith(selectedYear.toString()));
+    return list.sort((a, b) => {
+      const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return timeB - timeA;
+    });
   }, [tasks, selectedYear]);
 
   // Boss stats calculators
@@ -774,14 +830,44 @@ export default function App() {
   // Get active updates for the selected task
   const activeTaskUpdates = updates.filter(u => u.taskId === selectedTask?.id);
 
-  // Filter updates based on filtered tasks if selectedTask is not set
+  // Filter updates based on filtered tasks if selectedTask is not set, and apply timelineTimeFilter
   const filteredUpdates = useMemo(() => {
+    let baseUpdates = [];
     if (selectedTask) {
-      return activeTaskUpdates;
+      baseUpdates = activeTaskUpdates;
+    } else {
+      const filteredTaskIds = new Set(filteredTasks.map(t => t.id));
+      baseUpdates = updates.filter(u => filteredTaskIds.has(u.taskId));
     }
-    const filteredTaskIds = new Set(filteredTasks.map(t => t.id));
-    return updates.filter(u => filteredTaskIds.has(u.taskId));
-  }, [selectedTask, activeTaskUpdates, updates, filteredTasks]);
+
+    if (timelineTimeFilter === "all") {
+      return baseUpdates;
+    }
+
+    const todayObj = new Date(TODAY_DATE);
+
+    return baseUpdates.filter(up => {
+      const upDateObj = new Date(up.date);
+      const diffTime = todayObj.getTime() - upDateObj.getTime();
+      const diffDays = diffTime / (1000 * 60 * 60 * 24);
+
+      if (timelineTimeFilter === "today") {
+        return up.date === TODAY_DATE;
+      }
+      if (timelineTimeFilter === "week") {
+        const { monday, sunday } = getMondayAndSundayOfDate(TODAY_DATE);
+        const upDateObj = new Date(up.date);
+        return upDateObj >= monday && upDateObj <= sunday;
+      }
+      if (timelineTimeFilter === "month") {
+        return upDateObj.getMonth() === todayObj.getMonth() && upDateObj.getFullYear() === todayObj.getFullYear();
+      }
+      if (timelineTimeFilter === "year") {
+        return upDateObj.getFullYear() === todayObj.getFullYear();
+      }
+      return true;
+    });
+  }, [selectedTask, activeTaskUpdates, updates, filteredTasks, timelineTimeFilter]);
 
   const unreadNotifCount = useMemo(() => {
     return notifications.filter(n => !n.isRead).length;
@@ -896,7 +982,7 @@ export default function App() {
             <div className="bg-white/10 backdrop-blur-md px-4 py-2.5 rounded-xl border border-white/10 flex items-center space-x-3 text-center">
               <div className="pr-3 border-r border-white/10">
                 <p className="text-[10px] text-indigo-200 font-bold uppercase">Hôm nay</p>
-                <p className="text-sm font-black tracking-wider text-white">05 - 07 - 2026</p>
+                <p className="text-sm font-black tracking-wider text-white">{formatDate(TODAY_DATE).replace(/\//g, " - ")}</p>
               </div>
               <div className="flex flex-col text-left">
                 <label htmlFor="banner-year-select" className="text-[9px] text-indigo-200 font-bold uppercase tracking-wider">Năm Quản Lý</label>
@@ -1086,7 +1172,7 @@ export default function App() {
                                   <span>•</span>
                                 </>
                               )}
-                              <span>{new Date(n.createdAt || n.timestamp || new Date()).toLocaleString("vi-VN")}</span>
+                              <span>{formatDateTime(n.createdAt || n.timestamp)}</span>
                             </div>
                           </div>
                         </div>
@@ -1567,7 +1653,7 @@ export default function App() {
                               {getTypeBadge(task.type)}
                             </td>
                             <td className="py-3 px-4 whitespace-nowrap text-gray-600 dark:text-gray-400">
-                              {task.createdAt ? new Date(task.createdAt).toLocaleString("vi-VN", { dateStyle: "short", timeStyle: "short" }) : "N/A"}
+                              {formatDateTime(task.createdAt)}
                             </td>
                             <td className="py-3 px-4">
                               <div className="flex items-center space-x-2">
@@ -1585,7 +1671,7 @@ export default function App() {
                             <td className="py-3 px-4 whitespace-nowrap">
                               <div className="flex items-center space-x-1.5 text-gray-600 dark:text-gray-400">
                                 <Calendar className="w-3.5 h-3.5" />
-                                <span>{task.dueDate ? task.dueDate : "N/A"}</span>
+                                <span>{formatDate(task.dueDate)}</span>
                               </div>
                             </td>
                             <td className="py-3 px-4 whitespace-nowrap">
@@ -1760,13 +1846,13 @@ export default function App() {
                           <div className="flex items-center space-x-4 mt-3 text-[11px] text-gray-400 font-medium">
                             <span className="flex items-center space-x-1">
                               <CalendarDays className="w-3.5 h-3.5" />
-                              <span>Bắt đầu: {task.startDate}</span>
+                              <span>Bắt đầu: {formatDate(task.startDate)}</span>
                             </span>
                             {task.dueDate && (
                               <span className="flex items-center space-x-1">
                                 <Clock className="w-3.5 h-3.5 text-rose-400" />
                                 <span className={isTaskOverdue(task) ? "text-red-500 font-bold" : ""}>
-                                  Hạn: {task.dueDate} {isTaskOverdue(task) && "(Quá hạn)"}
+                                  Hạn: {formatDate(task.dueDate)} {isTaskOverdue(task) && "(Quá hạn)"}
                                 </span>
                               </span>
                             )}
@@ -1847,7 +1933,7 @@ export default function App() {
                       <div key={up.id} className="p-2.5 bg-gray-50 dark:bg-gray-800/40 rounded-lg text-xs space-y-1 border border-gray-150 dark:border-gray-800">
                         <div className="flex items-center justify-between">
                           <span className="font-bold text-indigo-600 dark:text-indigo-400 text-[10px]">{up.userName}</span>
-                          <span className="text-[9px] text-gray-400">{up.date}</span>
+                          <span className="text-[9px] text-gray-400">{formatDate(up.date)}</span>
                         </div>
                         <p className="italic text-gray-600 dark:text-gray-300">"{up.notes}"</p>
                         {linkedTask && (
@@ -1874,7 +1960,7 @@ export default function App() {
 
         {/* ----------------- TIMELINE LỊCH SỬ CẬP NHẬT (BOTTOM CONTAINER) ----------------- */}
         <div id="timeline-section" className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 shadow-xs overflow-hidden">
-          <div className="p-4 bg-gray-50/50 dark:bg-gray-800/20 border-b border-gray-200 dark:border-gray-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="p-4 bg-gray-50/50 dark:bg-gray-800/20 border-b border-gray-200 dark:border-gray-800 flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div className="space-y-0.5">
               <div className="flex items-center space-x-2 text-indigo-600 dark:text-indigo-400">
                 <Clock className="w-5 h-5" />
@@ -1889,16 +1975,72 @@ export default function App() {
               </p>
             </div>
 
-            {selectedTask && (
-              <button
-                id="clear-selected-task-btn"
-                onClick={() => setSelectedTask(null)}
-                className="text-xs font-bold text-gray-400 hover:text-gray-600 dark:hover:text-white flex items-center space-x-1"
-              >
-                <span>Xem tất cả lịch sử</span>
-                <X className="w-4 h-4" />
-              </button>
-            )}
+            {/* Bộ lọc thời gian cho Lịch sử */}
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center space-x-1 bg-gray-100 dark:bg-gray-800/80 p-0.5 rounded-lg text-xs">
+                <button
+                  onClick={() => setTimelineTimeFilter("all")}
+                  className={`px-2.5 py-1 rounded-md font-bold text-[11px] transition-all ${
+                    timelineTimeFilter === "all"
+                      ? "bg-white dark:bg-gray-700 text-indigo-600 dark:text-indigo-400 shadow-xs"
+                      : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
+                  }`}
+                >
+                  Tất cả
+                </button>
+                <button
+                  onClick={() => setTimelineTimeFilter("today")}
+                  className={`px-2.5 py-1 rounded-md font-bold text-[11px] transition-all ${
+                    timelineTimeFilter === "today"
+                      ? "bg-white dark:bg-gray-700 text-indigo-600 dark:text-indigo-400 shadow-xs"
+                      : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
+                  }`}
+                >
+                  Hôm nay
+                </button>
+                <button
+                  onClick={() => setTimelineTimeFilter("week")}
+                  className={`px-2.5 py-1 rounded-md font-bold text-[11px] transition-all ${
+                    timelineTimeFilter === "week"
+                      ? "bg-white dark:bg-gray-700 text-indigo-600 dark:text-indigo-400 shadow-xs"
+                      : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
+                  }`}
+                >
+                  Tuần
+                </button>
+                <button
+                  onClick={() => setTimelineTimeFilter("month")}
+                  className={`px-2.5 py-1 rounded-md font-bold text-[11px] transition-all ${
+                    timelineTimeFilter === "month"
+                      ? "bg-white dark:bg-gray-700 text-indigo-600 dark:text-indigo-400 shadow-xs"
+                      : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
+                  }`}
+                >
+                  Tháng
+                </button>
+                <button
+                  onClick={() => setTimelineTimeFilter("year")}
+                  className={`px-2.5 py-1 rounded-md font-bold text-[11px] transition-all ${
+                    timelineTimeFilter === "year"
+                      ? "bg-white dark:bg-gray-700 text-indigo-600 dark:text-indigo-400 shadow-xs"
+                      : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
+                  }`}
+                >
+                  Năm
+                </button>
+              </div>
+
+              {selectedTask && (
+                <button
+                  id="clear-selected-task-btn"
+                  onClick={() => setSelectedTask(null)}
+                  className="text-xs font-bold text-gray-400 hover:text-gray-600 dark:hover:text-white flex items-center space-x-1 border border-gray-250 dark:border-gray-800 rounded-lg px-2.5 py-1 bg-white dark:bg-gray-900 shadow-xs transition-colors"
+                >
+                  <span>Xem tất cả</span>
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="p-6">
@@ -1946,7 +2088,7 @@ export default function App() {
                           <div className="flex items-center space-x-2">
                             <span className="text-[11px] text-gray-400 font-semibold flex items-center space-x-1">
                               <Calendar className="w-3.5 h-3.5" />
-                              <span>{up.date}</span>
+                              <span>{formatDate(up.date)}</span>
                             </span>
                             {canEdit && (
                               <button
@@ -1976,26 +2118,17 @@ export default function App() {
                           </div>
                         )}
 
-                        <div className="grid grid-cols-1 md:grid-cols-12 gap-3 text-xs">
-                          {/* Work done column */}
-                          <div className="md:col-span-8 space-y-1">
-                            <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Nội dung đã thực hiện:</span>
-                            <p className="text-gray-800 dark:text-gray-200 whitespace-pre-line leading-relaxed">
-                              {up.workDone}
-                            </p>
-                          </div>
+                        <div className="text-xs space-y-2">
+                          <p className="text-gray-800 dark:text-gray-200 whitespace-pre-line leading-relaxed">
+                            {up.workDone}
+                          </p>
 
-                          {/* Notes column */}
-                          <div className="md:col-span-4 space-y-1">
-                            <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Ghi chú:</span>
-                            <p className="text-gray-800 dark:text-gray-200 italic whitespace-pre-line">
-                              {up.notes && up.notes.trim() !== "" ? (
-                                <span>"{up.notes}"</span>
-                              ) : (
-                                <span className="text-gray-400">Không có</span>
-                              )}
-                            </p>
-                          </div>
+                          {up.notes && up.notes.trim() !== "" && (
+                            <div className="flex items-start space-x-1.5 text-[11px] text-amber-600 dark:text-amber-400 bg-amber-500/5 dark:bg-amber-400/5 px-2.5 py-1.5 rounded-lg border border-amber-500/10 max-w-max">
+                              <span className="font-bold shrink-0">Ghi chú:</span>
+                              <span className="italic">"{up.notes}"</span>
+                            </div>
+                          )}
                         </div>
 
                       </div>
