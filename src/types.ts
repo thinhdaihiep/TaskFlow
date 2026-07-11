@@ -15,6 +15,15 @@ export enum TaskPriority {
   LOW = "Thấp"
 }
 
+declare global {
+  interface Window {
+    AndroidApp?: {
+      onLoginSuccess: (userId: string, userRole: string) => void;
+      onLogout: () => void;
+    };
+  }
+}
+
 export enum TaskStatus {
   NOT_STARTED = "Chưa bắt đầu",
   IN_PROGRESS = "Đang thực hiện",

@@ -404,6 +404,15 @@ export default function App() {
   // Sync data on user login/change
   useEffect(() => {
     fetchData();
+    
+    // Notify Android app if wrapped in a WebView
+    if (window.AndroidApp) {
+      if (currentUser) {
+        window.AndroidApp.onLoginSuccess(currentUser.id, currentUser.role);
+      } else {
+        window.AndroidApp.onLogout();
+      }
+    }
   }, [currentUser]);
 
   // Reactive auto-updates: Polling, Tab Focus, and Storage Sync across windows/tabs
@@ -1480,7 +1489,7 @@ export default function App() {
                         description: "",
                         type: TaskType.REGULAR,
                         priority: TaskPriority.MEDIUM,
-                        startDate: `${selectedYear}-07-05`,
+                        startDate: TODAY_DATE,
                         dueDate: "",
                         assignedTo: []
                       });
