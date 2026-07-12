@@ -492,7 +492,7 @@ function mergeStates(local: DBState, remote: DBState): DBState {
   });
   const mergedTasks = Array.from(tasksMap.values());
 
-  // 3. Merge Updates: Union by ID, resolve duplicates by createdAt (newest wins)
+  // 3. Merge Updates: Union by ID, resolve duplicates by createdAt/updatedAt (newest wins)
   const updatesMap = new Map<string, TaskUpdate>();
   (remote.updates || []).forEach(u => updatesMap.set(u.id, u));
   (local.updates || []).forEach(u => {
@@ -500,8 +500,8 @@ function mergeStates(local: DBState, remote: DBState): DBState {
     if (!existing) {
       updatesMap.set(u.id, u);
     } else {
-      const remoteTime = new Date(existing.createdAt || 0).getTime();
-      const localTime = new Date(u.createdAt || 0).getTime();
+      const remoteTime = new Date(existing.updatedAt || existing.createdAt || 0).getTime();
+      const localTime = new Date(u.updatedAt || u.createdAt || 0).getTime();
       if (localTime >= remoteTime) {
         updatesMap.set(u.id, u);
       }

@@ -210,7 +210,7 @@ async function startServer() {
     const userRole = req.query.role as string;
     
     const db = readDB();
-    let tasks = [...db.tasks];
+    let tasks = db.tasks.filter(t => !t.isDeleted);
 
     // Check if the user is a member, filter tasks assigned to them
     if (userRole === "member" && userId) {
@@ -223,7 +223,7 @@ async function startServer() {
   // API: Get Task by ID
   app.get("/api/tasks/:id", (req, res) => {
     const db = readDB();
-    const task = db.tasks.find(t => t.id === req.params.id);
+    const task = db.tasks.find(t => t.id === req.params.id && !t.isDeleted);
     if (!task) {
        res.status(404).json({ error: "Không tìm thấy nhiệm vụ" });
        return;
@@ -354,16 +354,22 @@ async function startServer() {
     const taskId = req.params.id;
     const db = readDB();
     
-    const initialCount = db.tasks.length;
-    db.tasks = db.tasks.filter(t => t.id !== taskId);
-    
-    // Also clean up updates for this task
-    db.updates = db.updates.filter(u => u.taskId !== taskId);
-
-    if (db.tasks.length === initialCount) {
+    const task = db.tasks.find(t => t.id === taskId);
+    if (!task) {
        res.status(404).json({ error: "Không tìm thấy nhiệm vụ" });
        return;
     }
+    
+    task.isDeleted = true;
+    task.updatedAt = new Date().toISOString();
+    
+    // Also clean up updates for this task by soft deleting them
+    db.updates.forEach(u => {
+      if (u.taskId === taskId) {
+        u.isDeleted = true;
+        u.updatedAt = new Date().toISOString();
+      }
+    });
 
     writeDB(db);
     res.json({ message: "Xóa nhiệm vụ thành công" });
@@ -374,7 +380,7 @@ async function startServer() {
     const taskId = req.query.taskId as string;
     const db = readDB();
     
-    let updates = [...db.updates];
+    let updates = db.updates.filter(u => !u.isDeleted);
     if (taskId) {
       updates = updates.filter(u => u.taskId === taskId);
     }
@@ -493,6 +499,7 @@ async function startServer() {
       difficulties: difficulties || "",
       notes: notes || "",
       date, // Update date
+      updatedAt: new Date().toISOString(),
     };
 
     db.updates[updateIndex] = updated;

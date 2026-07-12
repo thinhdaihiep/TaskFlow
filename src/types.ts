@@ -55,6 +55,7 @@ export interface Task {
   createdAt: string;
   updatedAt: string;
   lastUpdatedToday?: boolean; // dynamic field computed in backend/client
+  isDeleted?: boolean;
 }
 
 export interface TaskUpdate {
@@ -68,6 +69,8 @@ export interface TaskUpdate {
   difficulties?: string;
   notes?: string;
   createdAt: string;
+  updatedAt?: string;
+  isDeleted?: boolean;
 }
 
 export interface AppNotification {

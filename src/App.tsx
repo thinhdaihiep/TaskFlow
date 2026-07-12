@@ -21,7 +21,14 @@ import {
 import AnnualStats from "./components/AnnualStats";
 import BackupRestore from "./components/BackupRestore";
 
-const TODAY_DATE = "2026-07-11"; // system constant representing current date
+const getLocalDateString = () => {
+  const date = new Date();
+  const offset = date.getTimezoneOffset();
+  const localDate = new Date(date.getTime() - (offset * 60 * 1000));
+  return localDate.toISOString().split("T")[0];
+};
+
+const TODAY_DATE = getLocalDateString();
 
 function getMondayAndSundayOfDate(dateStr: string) {
   const d = new Date(dateStr);
@@ -2728,6 +2735,27 @@ export default function App() {
         </div>
       )}
 
+      {/* Floating Action Button cho sếp */}
+      {currentUser?.role === "boss" && (
+        <button
+          onClick={() => {
+            setTaskForm({
+              title: "",
+              description: "",
+              type: TaskType.REGULAR,
+              priority: TaskPriority.MEDIUM,
+              startDate: TODAY_DATE,
+              dueDate: "",
+              assignedTo: []
+            });
+            setShowCreateModal(true);
+          }}
+          className="fixed bottom-6 right-6 w-14 h-14 bg-indigo-600 text-white rounded-full flex items-center justify-center shadow-lg hover:bg-indigo-700 hover:scale-105 active:scale-95 transition-all z-40"
+          title="Tạo nhiệm vụ mới"
+        >
+          <Plus className="w-6 h-6" />
+        </button>
+      )}
     </div>
   );
 }
