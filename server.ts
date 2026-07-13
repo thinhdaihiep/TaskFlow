@@ -19,7 +19,8 @@ function addNotification(
   senderId: string,
   senderName: string,
   receiverId: string,
-  updateId?: string
+  updateId?: string,
+  groupId?: string
 ) {
   if (!db.notifications) {
     db.notifications = [];
@@ -35,6 +36,7 @@ function addNotification(
     senderId,
     senderName,
     receiverId,
+    groupId: groupId || "longnb", // Ensure groupId is assigned
     createdAt: new Date().toISOString(),
     isRead: false
   };
@@ -61,16 +63,35 @@ async function startServer() {
 
   // API: Auth Login
   app.post("/api/auth/login", (req, res) => {
-    const { username, password } = req.body;
+    const { username, password, groupId } = req.body;
     if (!username || !password) {
        res.status(400).json({ error: "Thiếu tên đăng nhập hoặc mật khẩu" });
        return;
     }
 
     const db = readDB();
-    const user = db.users.find(u => u.username.toLowerCase() === username.toLowerCase());
+    let user = null;
+
+    // First check if the username is a Boss (boss usernames are globally unique)
+    const bossUser = db.users.find(u => u.role === "boss" && u.username.toLowerCase() === username.toLowerCase().trim());
+    if (bossUser) {
+      user = bossUser;
+    } else if (groupId) {
+      // If not a boss, look for member in the selected group
+      user = db.users.find(u => u.role === "member" && u.username.toLowerCase() === username.toLowerCase().trim() && u.groupId === groupId);
+    } else {
+      // Fallback for older logins or if groupId is not supplied but user is unique
+      const matchingUsers = db.users.filter(u => u.username.toLowerCase() === username.toLowerCase().trim());
+      if (matchingUsers.length === 1) {
+        user = matchingUsers[0];
+      } else if (matchingUsers.length > 1) {
+        res.status(400).json({ error: "Tên đăng nhập này trùng lặp ở nhiều nhóm khác nhau. Vui lòng chọn Nhóm của bạn để đăng nhập." });
+        return;
+      }
+    }
+
     if (!user) {
-       res.status(401).json({ error: "Tài khoản không tồn tại" });
+       res.status(401).json({ error: "Tài khoản không tồn tại trong nhóm này" });
        return;
     }
 
@@ -84,25 +105,109 @@ async function startServer() {
     res.json({ user });
   });
 
+  // API: Register a New Boss & Group
+  app.post("/api/auth/register-group", (req, res) => {
+    const { username, name, password, groupName } = req.body;
+    if (!username || !name || !password || !groupName) {
+      res.status(400).json({ error: "Thiếu thông tin đăng ký (Tài khoản sếp, tên sếp, mật khẩu, tên nhóm)" });
+      return;
+    }
+
+    const db = readDB();
+    
+    // Check if username is already taken by any user (boss or member) to prevent conflicts, since boss username is the groupId
+    const exists = db.users.some(u => u.username.toLowerCase() === username.toLowerCase().trim());
+    if (exists) {
+      res.status(400).json({ error: "Tên tài khoản sếp này đã tồn tại trong hệ thống. Vui lòng chọn tên khác." });
+      return;
+    }
+
+    const colors = [
+      "bg-indigo-600 text-white", 
+      "bg-emerald-600 text-white", 
+      "bg-amber-600 text-white", 
+      "bg-rose-600 text-white", 
+      "bg-sky-600 text-white", 
+      "bg-teal-600 text-white",
+      "bg-violet-600 text-white",
+      "bg-fuchsia-600 text-white",
+      "bg-orange-600 text-white"
+    ];
+    const randomColor = colors[Math.floor(Math.random() * colors.length)];
+
+    const newBoss = {
+      id: "user_" + Math.random().toString(36).substr(2, 9),
+      username: username.toLowerCase().trim(),
+      name: name.trim(),
+      role: "boss" as const,
+      groupId: username.toLowerCase().trim(), // Boss ID is their own username
+      groupName: groupName.trim(),
+      avatarColor: randomColor,
+      password: password.trim()
+    };
+
+    db.users.push(newBoss);
+    writeDB(db);
+
+    res.status(201).json(newBoss);
+  });
+
+  // API: Get Groups List
+  app.get("/api/groups", (req, res) => {
+    const db = readDB();
+    const groups = db.users
+      .filter(u => u.role === "boss")
+      .map(u => ({
+        groupId: u.username,
+        groupName: u.groupName || u.name + "'s Group",
+        bossName: u.name
+      }));
+    res.json(groups);
+  });
+
   // API: Get Users List (for assignment and stats)
   app.get("/api/users", (req, res) => {
+    const groupId = req.query.groupId as string;
+    if (!groupId) {
+      res.json([]);
+      return;
+    }
     const db = readDB();
-    res.json(db.users);
+    let result = db.users.filter(u => u.groupId === groupId);
+    res.json(result);
   });
 
   // API: Add User (Boss Only)
   app.post("/api/users", (req, res) => {
-    const { name, username, password } = req.body;
+    const { name, username, password, groupId, groupName } = req.body;
     if (!name || !username || !password) {
       res.status(400).json({ error: "Thiếu thông tin nhân viên (Tên, tài khoản, mật khẩu)" });
       return;
     }
 
     const db = readDB();
-    const exists = db.users.some(u => u.username.toLowerCase() === username.toLowerCase().trim());
-    if (exists) {
-      res.status(400).json({ error: "Tên tài khoản đã tồn tại" });
+    
+    // Check if username is already taken by any Boss
+    const isBossConflict = db.users.some(u => u.role === "boss" && u.username.toLowerCase() === username.toLowerCase().trim());
+    if (isBossConflict) {
+      res.status(400).json({ error: "Tên đăng nhập này trùng với tài khoản Sếp hệ thống. Vui lòng chọn tên khác." });
       return;
+    }
+
+    // Check if username is already taken within the same group
+    if (groupId) {
+      const existsInGroup = db.users.some(u => u.groupId === groupId && u.username.toLowerCase() === username.toLowerCase().trim());
+      if (existsInGroup) {
+        res.status(400).json({ error: "Tên tài khoản nhân viên đã tồn tại trong nhóm của bạn." });
+        return;
+      }
+    } else {
+      // Fallback logic
+      const existsGlobal = db.users.some(u => u.username.toLowerCase() === username.toLowerCase().trim());
+      if (existsGlobal) {
+        res.status(400).json({ error: "Tên tài khoản nhân viên đã tồn tại." });
+        return;
+      }
     }
 
     const colors = [
@@ -123,6 +228,8 @@ async function startServer() {
       username: username.toLowerCase().trim(),
       name: name.trim(),
       role: "member" as const,
+      groupId: groupId || "longnb", // Default fallback
+      groupName: groupName || "Ban Bản đồ", // Default fallback
       avatarColor: randomColor,
       password: password.trim()
     };
@@ -149,9 +256,18 @@ async function startServer() {
 
     if (username) {
       const lowerUsername = username.toLowerCase().trim();
-      const exists = db.users.some(u => u.id !== id && u.username.toLowerCase() === lowerUsername);
-      if (exists) {
-        res.status(400).json({ error: "Tên tài khoản đã tồn tại" });
+      
+      // Check boss collision
+      const isBossConflict = db.users.some(u => u.role === "boss" && u.username.toLowerCase() === lowerUsername);
+      if (isBossConflict) {
+        res.status(400).json({ error: "Tên đăng nhập này trùng với tài khoản Sếp hệ thống. Vui lòng chọn tên khác." });
+        return;
+      }
+
+      // Check same group collision
+      const existsInGroup = db.users.some(u => u.id !== id && u.groupId === current.groupId && u.username.toLowerCase() === lowerUsername);
+      if (existsInGroup) {
+        res.status(400).json({ error: "Tên tài khoản nhân viên đã tồn tại trong nhóm." });
         return;
       }
       current.username = lowerUsername;
@@ -208,9 +324,15 @@ async function startServer() {
   app.get("/api/tasks", (req, res) => {
     const userId = req.query.userId as string;
     const userRole = req.query.role as string;
+    const groupId = req.query.groupId as string;
     
+    if (!groupId) {
+      res.json([]);
+      return;
+    }
+
     const db = readDB();
-    let tasks = db.tasks.filter(t => !t.isDeleted);
+    let tasks = db.tasks.filter(t => !t.isDeleted && t.groupId === groupId);
 
     // Check if the user is a member, filter tasks assigned to them
     if (userRole === "member" && userId) {
@@ -233,7 +355,7 @@ async function startServer() {
 
   // API: Create Task (Boss Only)
   app.post("/api/tasks", (req, res) => {
-    const { title, description, type, priority, startDate, dueDate, assignedTo } = req.body;
+    const { title, description, type, priority, startDate, dueDate, assignedTo, groupId } = req.body;
     
     if (!title || !type || !priority || !startDate || !assignedTo || !Array.isArray(assignedTo)) {
        res.status(400).json({ error: "Thiếu các thông tin bắt buộc" });
@@ -252,6 +374,7 @@ async function startServer() {
       dueDate: dueDate || undefined,
       assignedTo,
       progress: 0,
+      groupId: groupId || "longnb", // Default fallback
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
@@ -259,7 +382,7 @@ async function startServer() {
     db.tasks.unshift(newTask);
 
     // Generate notifications for assigned members
-    const boss = db.users.find(u => u.role === "boss") || { id: "boss1", name: "Phạm Minh Quang (Boss)" };
+    const boss = db.users.find(u => u.role === "boss" && u.username === newTask.groupId) || { id: "boss1", name: "Sếp" };
     assignedTo.forEach((memberId: string) => {
       addNotification(
         db,
@@ -269,7 +392,9 @@ async function startServer() {
         newTask.id,
         boss.id,
         boss.name,
-        memberId
+        memberId,
+        undefined,
+        newTask.groupId
       );
     });
 
@@ -328,7 +453,7 @@ async function startServer() {
 
     if (isBossEdit) {
       // Generate notifications for assigned members
-      const boss = db.users.find(u => u.role === "boss") || { id: "boss1", name: "Phạm Minh Quang (Boss)" };
+      const boss = db.users.find(u => u.role === "boss" && u.username === updatedTask.groupId) || { id: "boss1", name: "Sếp" };
       const targets = updatedTask.assignedTo || [];
       targets.forEach((memberId: string) => {
         addNotification(
@@ -339,7 +464,9 @@ async function startServer() {
           updatedTask.id,
           boss.id,
           boss.name,
-          memberId
+          memberId,
+          undefined,
+          updatedTask.groupId
         );
       });
     }
@@ -378,9 +505,19 @@ async function startServer() {
   // API: Get Updates for a specific task or all updates
   app.get("/api/updates", (req, res) => {
     const taskId = req.query.taskId as string;
+    const groupId = req.query.groupId as string;
+
+    if (!groupId && !taskId) {
+      res.json([]);
+      return;
+    }
+
     const db = readDB();
     
     let updates = db.updates.filter(u => !u.isDeleted);
+    if (groupId) {
+      updates = updates.filter(u => u.groupId === groupId);
+    }
     if (taskId) {
       updates = updates.filter(u => u.taskId === taskId);
     }
@@ -430,6 +567,7 @@ async function startServer() {
       workDone,
       difficulties: difficulties || "",
       notes: notes || "",
+      groupId: task.groupId,
       createdAt: new Date().toISOString()
     };
 
@@ -461,8 +599,9 @@ async function startServer() {
       taskId,
       userId,
       userName,
-      "boss",
-      newUpdate.id
+      task.groupId || "boss",
+      newUpdate.id,
+      task.groupId
     );
 
     writeDB(db);
@@ -536,8 +675,9 @@ async function startServer() {
         task.id,
         currentUpdate.userId,
         currentUpdate.userName,
-        "boss",
-        currentUpdate.id
+        task.groupId || "boss",
+        currentUpdate.id,
+        task.groupId
       );
     }
 
@@ -549,9 +689,10 @@ async function startServer() {
   app.get("/api/notifications", (req, res) => {
     const userId = req.query.userId as string;
     const role = req.query.role as string;
+    const groupId = req.query.groupId as string;
 
-    if (!userId) {
-      res.status(400).json({ error: "Thiếu userId" });
+    if (!userId || !groupId) {
+      res.json([]);
       return;
     }
 
@@ -562,7 +703,10 @@ async function startServer() {
 
     const userNotifs = db.notifications.filter(n => {
       if (n.isDeleted) return false;
-      const isBossNotif = (n.receiverId === "boss") || (n.targetRole === "boss") || (n.targetRole === "all");
+      
+      if (n.groupId && n.groupId !== groupId) return false;
+
+      const isBossNotif = (n.receiverId === "boss") || (n.receiverId === groupId) || (n.targetRole === "boss") || (n.targetRole === "all");
       const isUserNotif = (n.receiverId === userId) || (n.targetUserId === userId) || (n.targetRole === "member" && n.targetUserId === userId);
 
       if (role === "boss") {

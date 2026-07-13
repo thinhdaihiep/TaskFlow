@@ -12,13 +12,13 @@ const RTDB_URL = "https://goal-server-default-rtdb.asia-southeast1.firebasedatab
 
 // Static users list (fallback matching the current Firebase DB users)
 export const USERS: User[] = [
-  { id: "longnb", username: "longnb", name: "Nguyễn Bá Long", role: "boss", avatarColor: "bg-indigo-600 text-white" },
-  { id: "hienvn", username: "hienvn", name: "Võ Ngọc Hiền", role: "member", avatarColor: "bg-emerald-600 text-white" },
-  { id: "thinhnv", username: "thinhnv", name: "Ngô Văn Thịnh", role: "member", avatarColor: "bg-amber-600 text-white" },
-  { id: "vinhtq", username: "vinhtq", name: "Trần Quang Vinh", role: "member", avatarColor: "bg-rose-600 text-white" },
-  { id: "tuannv", username: "tuannv", name: "Nguyễn Văn Tuấn", role: "member", avatarColor: "bg-blue-600 text-white" },
-  { id: "chinhpv", username: "chinhpv", name: "Phạm Văn Chinh", role: "member", avatarColor: "bg-violet-600 text-white" },
-  { id: "thuanlt", username: "thuanlt", name: "Lã Thanh Thuân", role: "member", avatarColor: "bg-teal-600 text-white" }
+  { id: "longnb", username: "longnb", name: "Nguyễn Bá Long", role: "boss", avatarColor: "bg-indigo-600 text-white", groupId: "longnb", groupName: "Ban Bản đồ" },
+  { id: "hienvn", username: "hienvn", name: "Võ Ngọc Hiền", role: "member", avatarColor: "bg-emerald-600 text-white", groupId: "longnb", groupName: "Ban Bản đồ" },
+  { id: "thinhnv", username: "thinhnv", name: "Ngô Văn Thịnh", role: "member", avatarColor: "bg-amber-600 text-white", groupId: "longnb", groupName: "Ban Bản đồ" },
+  { id: "vinhtq", username: "vinhtq", name: "Trần Quang Vinh", role: "member", avatarColor: "bg-rose-600 text-white", groupId: "longnb", groupName: "Ban Bản đồ" },
+  { id: "tuannv", username: "tuannv", name: "Nguyễn Văn Tuấn", role: "member", avatarColor: "bg-blue-600 text-white", groupId: "longnb", groupName: "Ban Bản đồ" },
+  { id: "chinhpv", username: "chinhpv", name: "Phạm Văn Chinh", role: "member", avatarColor: "bg-violet-600 text-white", groupId: "longnb", groupName: "Ban Bản đồ" },
+  { id: "thuanlt", username: "thuanlt", name: "Lã Thanh Thuân", role: "member", avatarColor: "bg-teal-600 text-white", groupId: "longnb", groupName: "Ban Bản đồ" }
 ];
 
 export interface DBState {
@@ -289,10 +289,14 @@ export function getSeededDatabaseState(): DBState {
   ];
 
   return {
-    tasks,
-    updates,
+    tasks: tasks.map(t => ({ ...t, groupId: "longnb" })),
+    updates: updates.map(u => ({ ...u, groupId: "longnb" })),
     users: seededUsers,
-    notifications,
+    notifications: notifications.map(n => ({
+      ...n,
+      groupId: "longnb",
+      receiverId: n.receiverId === "boss" ? "longnb" : n.receiverId
+    })),
     chat: {
       txt: CHAT_REQUIREMENTS
     }
@@ -304,7 +308,41 @@ const DEFAULT_STATE: DBState = getSeededDatabaseState();
 export function ensureDatabaseConsistency(state: DBState): DBState {
   if (!state.tasks || !state.updates) return state;
 
+  // Patch existing users that might have been saved without groupId and groupName
+  const patchedUsers = (state.users || []).map(user => {
+    if (!user.groupId || !user.groupName || user.groupName === "Phòng Dự Án IT") {
+      // Find a boss user to associate with, preferably 'longnb' or the first boss
+      let targetGroupId = "longnb";
+      let targetGroupName = "Ban Bản đồ";
+      
+      // If the user itself is the boss, patch itself
+      if (user.role === "boss") {
+        targetGroupId = user.username;
+        targetGroupName = user.groupName === "Phòng Dự Án IT" ? "Ban Bản đồ" : (user.groupName || targetGroupName);
+      } else {
+        // Find existing boss
+        const boss = state.users.find(u => u.role === "boss" && u.username === "longnb");
+        if (boss) {
+           targetGroupId = boss.username;
+           targetGroupName = boss.groupName === "Phòng Dự Án IT" ? "Ban Bản đồ" : (boss.groupName || "Ban Bản đồ");
+        }
+      }
+      
+      return {
+        ...user,
+        groupId: targetGroupId,
+        groupName: targetGroupName
+      };
+    }
+    return user;
+  });
+
   const updatedTasks = state.tasks.map(task => {
+    let newTask = { ...task };
+    if (!newTask.groupId) {
+      newTask.groupId = "longnb";
+    }
+
     const taskUpdates = (state.updates || []).filter(u => u.taskId === task.id);
     if (taskUpdates.length > 0) {
       // Find latest update by date, then by createdAt
@@ -315,30 +353,49 @@ export function ensureDatabaseConsistency(state: DBState): DBState {
       });
 
       const latestProgress = Number(latestUpdate.progress);
-      if (task.progress !== latestProgress) {
+      if (newTask.progress !== latestProgress) {
         // Auto calculate status based on progress
-        let updatedStatus = task.status;
+        let updatedStatus = newTask.status;
         if (latestProgress >= 100) {
           updatedStatus = TaskStatus.COMPLETED;
-        } else if (latestProgress > 0 && (task.status === TaskStatus.NOT_STARTED || task.status === TaskStatus.COMPLETED)) {
+        } else if (latestProgress > 0 && (newTask.status === TaskStatus.NOT_STARTED || newTask.status === TaskStatus.COMPLETED)) {
           updatedStatus = TaskStatus.IN_PROGRESS;
         }
 
-        console.log(`[Consistency Engine] Syncing task "${task.title}" (${task.id}) progress from ${task.progress}% to ${latestProgress}% based on latest update (${latestUpdate.id})`);
-        return {
-          ...task,
+        console.log(`[Consistency Engine] Syncing task "${newTask.title}" (${newTask.id}) progress from ${newTask.progress}% to ${latestProgress}% based on latest update (${latestUpdate.id})`);
+        newTask = {
+          ...newTask,
           progress: latestProgress,
           status: updatedStatus,
           updatedAt: new Date().toISOString()
         };
       }
     }
-    return task;
+    return newTask;
+  });
+
+  const updatedUpdates = (state.updates || []).map(up => {
+    if (!up.groupId) {
+      const parentTask = updatedTasks.find(t => t.id === up.taskId);
+      return { ...up, groupId: parentTask?.groupId || "longnb" };
+    }
+    return up;
+  });
+
+  const updatedNotifications = (state.notifications || []).map(n => {
+    if (!n.groupId) {
+      const parentTask = updatedTasks.find(t => t.id === n.taskId);
+      return { ...n, groupId: parentTask?.groupId || "longnb" };
+    }
+    return n;
   });
 
   return {
     ...state,
-    tasks: updatedTasks
+    users: patchedUsers,
+    tasks: updatedTasks,
+    updates: updatedUpdates,
+    notifications: updatedNotifications
   };
 }
 
@@ -412,7 +469,8 @@ function detectAndGenerateNotifications(incomingState: DBState): boolean {
         taskId: update.taskId,
         senderId: update.userId,
         senderName: update.userName,
-        receiverId: "boss",
+        receiverId: task.groupId || "boss",
+        groupId: task.groupId,
         createdAt: update.createdAt || new Date().toISOString(),
         isRead: false
       };
@@ -446,7 +504,8 @@ function detectAndGenerateNotifications(incomingState: DBState): boolean {
             taskId: task.id,
             senderId: assignedUser.id,
             senderName: assignedUser.name,
-            receiverId: "boss",
+            receiverId: task.groupId || "boss",
+            groupId: task.groupId,
             createdAt: new Date().toISOString(),
             isRead: false
           };

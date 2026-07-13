@@ -18,7 +18,7 @@ export enum TaskPriority {
 declare global {
   interface Window {
     AndroidApp?: {
-      onLoginSuccess: (userId: string, userRole: string) => void;
+      onLoginSuccess: (userId: string, userRole: string, groupId: string, groupName: string) => void;
       onLogout: () => void;
     };
   }
@@ -39,6 +39,8 @@ export interface User {
   role: "boss" | "member";
   avatarColor: string;
   password?: string;
+  groupId?: string;      // Boss username used as Group ID
+  groupName?: string;    // Name of the group
 }
 
 export interface Task {
@@ -56,6 +58,7 @@ export interface Task {
   updatedAt: string;
   lastUpdatedToday?: boolean; // dynamic field computed in backend/client
   isDeleted?: boolean;
+  groupId?: string;      // Group ID association
 }
 
 export interface TaskUpdate {
@@ -71,6 +74,7 @@ export interface TaskUpdate {
   createdAt: string;
   updatedAt?: string;
   isDeleted?: boolean;
+  groupId?: string;      // Group ID association
 }
 
 export interface AppNotification {
@@ -83,13 +87,14 @@ export interface AppNotification {
   taskId?: string;
   senderId?: string;
   senderName?: string;
-  receiverId?: string; // memberId, or "boss" (which maps to all boss notifications)
+  receiverId?: string; // memberId, or boss's groupId
   createdAt?: string;
   isRead: boolean;
   targetRole?: "boss" | "member" | "all"; // Support Android format
   targetUserId?: string; // Support Android format
   timestamp?: string; // Support Android format
   isDeleted?: boolean;
+  groupId?: string;      // Group ID association
 }
 
 export interface AppState {

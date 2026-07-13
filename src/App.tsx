@@ -250,7 +250,11 @@ export default function App() {
         res = await fetch("/api/users", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(employeeForm)
+          body: JSON.stringify({
+            ...employeeForm,
+            groupId: currentUser?.groupId,
+            groupName: currentUser?.groupName
+          })
         });
       }
 
@@ -307,16 +311,25 @@ export default function App() {
     if (!silent) setIsLoading(true);
     try {
       // Fetch users with cache buster to bypass browser caching
-      const usersRes = await fetch(`/api/users?_t=${Date.now()}`, {
+      const usersRes = await fetch(`/api/users?groupId=${currentUser.groupId || ""}&_t=${Date.now()}`, {
         headers: { "Cache-Control": "no-cache", "Pragma": "no-cache" }
       });
       const usersData = await usersRes.json();
       if (Array.isArray(usersData)) {
         setUsers(usersData);
+        // Auto-patch currentUser if they are missing groupId or groupName from old localStorage
+        const latestMe = usersData.find(u => u.id === currentUser.id);
+        if (latestMe && (!currentUser.groupId || currentUser.groupId !== latestMe.groupId)) {
+          setCurrentUser(latestMe);
+          localStorage.setItem("user", JSON.stringify(latestMe));
+        }
       }
 
+      // We use latestMe.groupId if available, otherwise currentUser.groupId
+      const safeGroupId = (Array.isArray(usersData) && usersData.find(u => u.id === currentUser.id)?.groupId) || currentUser.groupId || "";
+
       // Fetch tasks (filtered on server if member) with cache buster
-      const tasksUrl = `/api/tasks?userId=${currentUser.id}&role=${currentUser.role}&_t=${Date.now()}`;
+      const tasksUrl = `/api/tasks?userId=${currentUser.id}&role=${currentUser.role}&groupId=${safeGroupId}&_t=${Date.now()}`;
       const tasksRes = await fetch(tasksUrl, {
         headers: { "Cache-Control": "no-cache", "Pragma": "no-cache" }
       });
@@ -326,7 +339,7 @@ export default function App() {
       }
 
       // Fetch all updates with cache buster
-      const updatesRes = await fetch(`/api/updates?_t=${Date.now()}`, {
+      const updatesRes = await fetch(`/api/updates?groupId=${safeGroupId}&_t=${Date.now()}`, {
         headers: { "Cache-Control": "no-cache", "Pragma": "no-cache" }
       });
       const updatesData = await updatesRes.json();
@@ -335,7 +348,7 @@ export default function App() {
       }
 
       // Fetch notifications with cache buster
-      const notificationsRes = await fetch(`/api/notifications?userId=${currentUser.id}&role=${currentUser.role}&_t=${Date.now()}`, {
+      const notificationsRes = await fetch(`/api/notifications?userId=${currentUser.id}&role=${currentUser.role}&groupId=${safeGroupId}&_t=${Date.now()}`, {
         headers: { "Cache-Control": "no-cache", "Pragma": "no-cache" }
       });
       const notificationsData = await notificationsRes.json();
@@ -415,7 +428,7 @@ export default function App() {
     // Notify Android app if wrapped in a WebView
     if (window.AndroidApp) {
       if (currentUser) {
-        window.AndroidApp.onLoginSuccess(currentUser.id, currentUser.role);
+        window.AndroidApp.onLoginSuccess(currentUser.id, currentUser.role, currentUser.groupId || "", currentUser.groupName || "");
       } else {
         window.AndroidApp.onLogout();
       }
@@ -470,7 +483,7 @@ export default function App() {
     setIsLoading(true);
     try {
       // Fetch users with cache buster to bypass browser caching
-      const usersRes = await fetch(`/api/users?_t=${Date.now()}`, {
+      const usersRes = await fetch(`/api/users?groupId=${user.groupId || ""}&_t=${Date.now()}`, {
         headers: { "Cache-Control": "no-cache", "Pragma": "no-cache" }
       });
       const usersData = await usersRes.json();
@@ -479,7 +492,7 @@ export default function App() {
       }
 
       // Fetch tasks (filtered on server if member) with cache buster
-      const tasksUrl = `/api/tasks?userId=${user.id}&role=${user.role}&_t=${Date.now()}`;
+      const tasksUrl = `/api/tasks?userId=${user.id}&role=${user.role}&groupId=${user.groupId || ""}&_t=${Date.now()}`;
       const tasksRes = await fetch(tasksUrl, {
         headers: { "Cache-Control": "no-cache", "Pragma": "no-cache" }
       });
@@ -489,7 +502,7 @@ export default function App() {
       }
 
       // Fetch all updates with cache buster
-      const updatesRes = await fetch(`/api/updates?_t=${Date.now()}`, {
+      const updatesRes = await fetch(`/api/updates?groupId=${user.groupId || ""}&_t=${Date.now()}`, {
         headers: { "Cache-Control": "no-cache", "Pragma": "no-cache" }
       });
       const updatesData = await updatesRes.json();
@@ -498,7 +511,7 @@ export default function App() {
       }
 
       // Fetch notifications with cache buster
-      const notificationsRes = await fetch(`/api/notifications?userId=${user.id}&role=${user.role}&_t=${Date.now()}`, {
+      const notificationsRes = await fetch(`/api/notifications?userId=${user.id}&role=${user.role}&groupId=${user.groupId || ""}&_t=${Date.now()}`, {
         headers: { "Cache-Control": "no-cache", "Pragma": "no-cache" }
       });
       const notificationsData = await notificationsRes.json();
@@ -570,7 +583,10 @@ export default function App() {
       const response = await fetch("/api/tasks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(taskForm)
+        body: JSON.stringify({
+          ...taskForm,
+          groupId: currentUser?.groupId
+        })
       });
       if (response.ok) {
         setShowCreateModal(false);
@@ -936,7 +952,7 @@ export default function App() {
               <div className="hidden sm:block text-left text-xs">
                 <p className="font-bold text-gray-800 dark:text-white leading-tight">{currentUser?.name || "Người dùng"}</p>
                 <p className="text-[10px] text-gray-500 dark:text-gray-400 font-semibold uppercase tracking-wider">
-                  {currentUser?.role === "boss" ? "Trưởng Nhóm" : "Thành viên"}
+                  {currentUser?.role === "boss" ? `Sếp • ${currentUser?.groupName || "Nhóm"}` : `Thành viên • ${currentUser?.groupName || "Nhóm"}`}
                 </p>
               </div>
             </div>
@@ -982,9 +998,16 @@ export default function App() {
             <Sparkles className="w-72 h-72" />
           </div>
           <div className="relative z-10 space-y-2">
-            <span className="text-xs font-bold uppercase tracking-widest bg-white/20 px-2.5 py-1 rounded-full text-indigo-100">
-              {currentUser?.role === "boss" ? "Bảng điều khiển quản lý" : "Không gian thành viên"}
-            </span>
+            <div className="flex flex-wrap gap-2">
+              <span className="text-xs font-bold uppercase tracking-widest bg-white/20 px-2.5 py-1 rounded-full text-indigo-100">
+                {currentUser?.role === "boss" ? "Bảng điều khiển quản lý" : "BẢNG NHIỆM VỤ"}
+              </span>
+              {currentUser?.groupName && (
+                <span className="text-xs font-bold uppercase tracking-widest bg-emerald-500/35 px-2.5 py-1 rounded-full text-emerald-100 border border-emerald-500/25">
+                  {currentUser.groupName}
+                </span>
+              )}
+            </div>
             <h2 className="text-2xl md:text-3xl font-extrabold tracking-tight">
               Xin chào, {currentUser?.name || "Người dùng"}!
             </h2>
