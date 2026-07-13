@@ -8,7 +8,7 @@ import path from "path";
 import { Task, TaskUpdate, TaskType, TaskPriority, TaskStatus, User, AppNotification } from "../types";
 
 const DB_PATH = path.join(process.cwd(), "database.json");
-const RTDB_URL = "https://goal-server-default-rtdb.asia-southeast1.firebasedatabase.app/.json";
+const RTDB_URL = "https://taskflow-goal-default-rtdb.asia-southeast1.firebasedatabase.app/.json";
 
 // Static users list (fallback matching the current Firebase DB users)
 export const USERS: User[] = [
