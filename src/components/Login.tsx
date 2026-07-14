@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from "react";
-import { LogIn, Key, UserCheck, ShieldAlert, Award, Users, BarChart3, History, PlusCircle, ArrowLeft, Building2 } from "lucide-react";
+import { LogIn, Key, UserCheck, ShieldAlert, Award, Users, BarChart3, History, PlusCircle, ArrowLeft, Building2, X } from "lucide-react";
 import { User } from "../types";
 
 interface LoginProps {
@@ -79,6 +79,24 @@ export default function Login({ onLoginSuccess }: LoginProps) {
       setLoginHistory(capped);
     } catch (e) {
       console.error("Error saving login history:", e);
+    }
+  };
+
+  // Remove a user account from local device storage history
+  const removeFromLoginHistory = (usernameToRemove: string, groupIdToRemove?: string, e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    try {
+      const history = JSON.parse(localStorage.getItem("loginHistory") || "[]") as User[];
+      const filtered = history.filter(
+        (u) => !(u.username === usernameToRemove && u.groupId === (groupIdToRemove || ""))
+      );
+      localStorage.setItem("loginHistory", JSON.stringify(filtered));
+      setLoginHistory(filtered);
+    } catch (err) {
+      console.error("Error removing from login history:", err);
     }
   };
 
@@ -363,30 +381,43 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                         : "border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50";
                       
                       return (
-                        <button
+                        <div
                           key={`${user.username}-${user.groupId || ""}`}
-                          id={`quick-login-${user.username}`}
-                          type="button"
-                          onClick={() => handleQuickLogin(user)}
-                          className={`flex items-center justify-between p-3 border rounded-xl text-left transition-all duration-150 ${borderCol}`}
+                          className="relative flex items-center w-full"
                         >
-                          <div className="flex items-center space-x-3">
-                            <div className="p-1.5 bg-gray-100 dark:bg-gray-800 rounded-lg text-gray-600 dark:text-gray-400">
-                              {isBoss ? <Award className="w-4 h-4 text-indigo-500" /> : <Users className="w-4 h-4" />}
-                            </div>
-                            <div>
-                              <div className="text-xs font-semibold text-gray-900 dark:text-white">
-                                {user.name} <span className="text-[10px] font-normal text-gray-500">({user.username})</span>
+                          <button
+                            id={`quick-login-${user.username}`}
+                            type="button"
+                            onClick={() => handleQuickLogin(user)}
+                            className={`flex-grow flex items-center justify-between p-3 border rounded-xl text-left transition-all duration-150 pr-10 ${borderCol}`}
+                          >
+                            <div className="flex items-center space-x-3">
+                              <div className="p-1.5 bg-gray-100 dark:bg-gray-800 rounded-lg text-gray-600 dark:text-gray-400">
+                                {isBoss ? <Award className="w-4 h-4 text-indigo-500" /> : <Users className="w-4 h-4" />}
                               </div>
-                              <div className="text-[10px] text-gray-500 dark:text-gray-400">
-                                Nhóm: {user.groupName || "Ban Bản đồ"}
+                              <div>
+                                <div className="text-xs font-semibold text-gray-900 dark:text-white">
+                                  {user.name} <span className="text-[10px] font-normal text-gray-500">({user.username})</span>
+                                </div>
+                                <div className="text-[10px] text-gray-500 dark:text-gray-400">
+                                  Nhóm: {user.groupName || "Ban Bản đồ"}
+                                </div>
                               </div>
                             </div>
-                          </div>
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
-                            {isBoss ? "Sếp" : "Nhân viên"}
-                          </span>
-                        </button>
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 mr-2 shrink-0">
+                              {isBoss ? "Sếp" : "Nhân viên"}
+                            </span>
+                          </button>
+                          
+                          <button
+                            type="button"
+                            onClick={(e) => removeFromLoginHistory(user.username, user.groupId, e)}
+                            className="absolute right-3 p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-all z-10 cursor-pointer"
+                            title="Xóa tài khoản này khỏi lịch sử lưu trên máy"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       );
                     })}
                   </div>
