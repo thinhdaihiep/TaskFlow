@@ -642,8 +642,8 @@ async function fetchFromFirebase(): Promise<void> {
 
           const remoteState: DBState = { tasks, updates, users, notifications, chat };
           
-          // Merge local and remote state to resolve conflicts
-          const newState = mergeStates(inMemoryState, remoteState);
+          // Merge local and remote state to resolve conflicts, and run consistency checks
+          const newState = ensureDatabaseConsistency(mergeStates(inMemoryState, remoteState));
           
           // Detect and generate notifications for any changes made externally (e.g. Android app)
           const addedNotifications = detectAndGenerateNotifications(newState);
@@ -691,8 +691,8 @@ async function uploadToFirebase(state: DBState): Promise<void> {
 
         const remoteState: DBState = { tasks, updates, users, notifications, chat };
         
-        // Merge our local state with the latest remote state
-        const mergedState = mergeStates(state, remoteState);
+        // Merge our local state with the latest remote state, and run consistency checks
+        const mergedState = ensureDatabaseConsistency(mergeStates(state, remoteState));
         
         // Double check auto notifications
         detectAndGenerateNotifications(mergedState);

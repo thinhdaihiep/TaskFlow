@@ -63,23 +63,23 @@ export async function checkServerAvailability(): Promise<boolean> {
 }
 
 // REST GET from Firebase Realtime Database
-async function getFirebaseState(): Promise<DBState> {
+async function getFirebaseState(forceRefresh = false): Promise<DBState> {
   const LOCAL_STORAGE_KEY = "task_manager_local_db";
 
-  // 1. Try reading from LocalStorage first for high resilience, offline speed and multi-instance caching
-  if (typeof window !== "undefined") {
+  // 1. Try reading from LocalStorage first for high resilience if NOT forcing a refresh
+  if (!forceRefresh && typeof window !== "undefined") {
     try {
       const localData = localStorage.getItem(LOCAL_STORAGE_KEY);
       if (localData) {
         const parsed = JSON.parse(localData);
         if (parsed && typeof parsed === "object") {
-          return {
+          return ensureDatabaseConsistency({
             tasks: Array.isArray(parsed.tasks) ? parsed.tasks : [],
             updates: Array.isArray(parsed.updates) ? parsed.updates : [],
             users: Array.isArray(parsed.users) ? parsed.users : FALLBACK_USERS,
             notifications: Array.isArray(parsed.notifications) ? parsed.notifications : [],
             chat: parsed.chat
-          };
+          });
         }
       }
     } catch (err) {
@@ -87,19 +87,24 @@ async function getFirebaseState(): Promise<DBState> {
     }
   }
 
-  // 2. Fallback to Firebase RTDB if local storage is empty
+  // 2. Fetch from Firebase RTDB (either because local storage is empty, or forcing a refresh)
   try {
-    const res = await fetch(RTDB_URL);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 6000); // 6s timeout to prevent infinite hanging
+    
+    const res = await fetch(RTDB_URL, { signal: controller.signal });
+    clearTimeout(timeoutId);
+    
     if (res.ok) {
       const data = await res.json();
       if (data && typeof data === "object") {
-        const state: DBState = {
+        const state: DBState = ensureDatabaseConsistency({
           tasks: Array.isArray(data.tasks) ? data.tasks : [],
           updates: Array.isArray(data.updates) ? data.updates : [],
           users: Array.isArray(data.users) ? data.users : FALLBACK_USERS,
           notifications: Array.isArray(data.notifications) ? data.notifications : [],
           chat: data.chat
-        };
+        });
         // Cache to local storage
         if (typeof window !== "undefined") {
           localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(state));
@@ -108,16 +113,36 @@ async function getFirebaseState(): Promise<DBState> {
       }
     }
   } catch (e) {
-    // Use warn instead of error to avoid triggering platform-wide telemetry errors
-    console.warn("[API Interceptor] Direct Firebase GET currently unavailable (using local defaults):", e);
+    console.warn("[API Interceptor] Direct Firebase GET currently unavailable or timed out:", e);
   }
 
-  const defaultState: DBState = {
+  // 3. Fallback to LocalStorage if we failed during forceRefresh
+  if (forceRefresh && typeof window !== "undefined") {
+    try {
+      const localData = localStorage.getItem(LOCAL_STORAGE_KEY);
+      if (localData) {
+        const parsed = JSON.parse(localData);
+        if (parsed && typeof parsed === "object") {
+          return ensureDatabaseConsistency({
+            tasks: Array.isArray(parsed.tasks) ? parsed.tasks : [],
+            updates: Array.isArray(parsed.updates) ? parsed.updates : [],
+            users: Array.isArray(parsed.users) ? parsed.users : FALLBACK_USERS,
+            notifications: Array.isArray(parsed.notifications) ? parsed.notifications : [],
+            chat: parsed.chat
+          });
+        }
+      }
+    } catch (err) {
+      // Ignore
+    }
+  }
+
+  const defaultState: DBState = ensureDatabaseConsistency({
     tasks: [],
     updates: [],
     users: FALLBACK_USERS,
     notifications: []
-  };
+  });
 
   // Cache defaults to local storage so future local writes are tracked
   if (typeof window !== "undefined") {
@@ -135,10 +160,13 @@ async function getFirebaseState(): Promise<DBState> {
 async function putFirebaseState(state: DBState): Promise<void> {
   const LOCAL_STORAGE_KEY = "task_manager_local_db";
 
+  // Ensure state is consistent before saving/syncing
+  const consistentState = ensureDatabaseConsistency(state);
+
   // 1. Save locally to LocalStorage first to ensure zero data loss
   if (typeof window !== "undefined") {
     try {
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(state));
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(consistentState));
     } catch (err) {
       console.warn("[API Interceptor] Failed to save state to local storage:", err);
     }
@@ -151,22 +179,55 @@ async function putFirebaseState(state: DBState): Promise<void> {
       headers: {
         "Content-Type": "application/json"
       },
-      body: JSON.stringify(state)
+      body: JSON.stringify(consistentState)
     });
     if (!res.ok) {
       console.warn("[API Interceptor] Direct Firebase PUT failed:", res.statusText);
     }
   } catch (e) {
-    // Avoid console.error to keep the client interface smooth and error-free when database is offline
     console.warn("[API Interceptor] Direct Firebase PUT currently unavailable (state saved locally):", e);
   }
 }
 
-// Ensure task state meets consistency requirements
+// Ensure task and user state meets consistency requirements
 function ensureDatabaseConsistency(state: DBState): DBState {
   if (!state.tasks || !state.updates) return state;
 
+  // Patch existing users that might have been saved without groupId and groupName
+  const patchedUsers = (state.users || []).map(user => {
+    if (!user.groupId || !user.groupName || user.groupName === "Phòng Dự Án IT") {
+      // Find a boss user to associate with, preferably 'longnb' or the first boss
+      let targetGroupId = "longnb";
+      let targetGroupName = "Ban Bản đồ";
+      
+      // If the user itself is the boss, patch itself
+      if (user.role === "boss") {
+        targetGroupId = user.username;
+        targetGroupName = user.groupName === "Phòng Dự Án IT" ? "Ban Bản đồ" : (user.groupName || targetGroupName);
+      } else {
+        // Find existing boss
+        const boss = state.users.find(u => u.role === "boss" && u.username === "longnb");
+        if (boss) {
+           targetGroupId = boss.username;
+           targetGroupName = boss.groupName === "Phòng Dự Án IT" ? "Ban Bản đồ" : (boss.groupName || "Ban Bản đồ");
+        }
+      }
+      
+      return {
+        ...user,
+        groupId: targetGroupId,
+        groupName: targetGroupName
+      };
+    }
+    return user;
+  });
+
   const updatedTasks = state.tasks.map(task => {
+    let newTask = { ...task };
+    if (!newTask.groupId) {
+      newTask.groupId = "longnb";
+    }
+
     const taskUpdates = (state.updates || []).filter(u => u.taskId === task.id);
     if (taskUpdates.length > 0) {
       const latestUpdate = taskUpdates.reduce((latest, current) => {
@@ -185,18 +246,19 @@ function ensureDatabaseConsistency(state: DBState): DBState {
         }
 
         return {
-          ...task,
+          ...newTask,
           progress: latestProgress,
           status: updatedStatus,
           updatedAt: new Date().toISOString()
         };
       }
     }
-    return task;
+    return newTask;
   });
 
   return {
     ...state,
+    users: patchedUsers,
     tasks: updatedTasks
   };
 }
@@ -242,25 +304,89 @@ async function handleClientSideAPIRequest(
   path: string,
   method: string,
   body: any,
-  searchParams: URLSearchParams
+  searchParams: URLSearchParams,
+  forceRefresh = false
 ): Promise<{ status: number; body: any }> {
-  // Read state
-  const db = await getFirebaseState();
+  // Read state with potential force refresh
+  const db = await getFirebaseState(forceRefresh);
 
   // 1. GET /api/health
   if (path === "/api/health") {
     return { status: 200, body: { status: "ok" } };
   }
 
+  // API: Get Groups List
+  if (path === "/api/groups" && method === "GET") {
+    const groups = db.users
+      .filter(u => u.role === "boss")
+      .map(u => ({
+        groupId: u.username,
+        groupName: u.groupName || u.name + "'s Group",
+        bossName: u.name
+      }));
+    return { status: 200, body: groups };
+  }
+
+  // API: Register a New Boss & Group
+  if (path === "/api/auth/register-group" && method === "POST") {
+    const { username, name, password, groupName } = body || {};
+    if (!username || !name || !password || !groupName) {
+      return { status: 400, body: { error: "Thiếu thông tin đăng ký (Tài khoản sếp, tên sếp, mật khẩu, tên nhóm)" } };
+    }
+
+    const exists = db.users.some(u => u.username.toLowerCase() === username.toLowerCase().trim());
+    if (exists) {
+      return { status: 400, body: { error: "Tên tài khoản sếp này đã tồn tại trong hệ thống. Vui lòng chọn tên khác." } };
+    }
+
+    const colors = [
+      "bg-indigo-600 text-white", "bg-emerald-600 text-white", "bg-amber-600 text-white",
+      "bg-rose-600 text-white", "bg-sky-600 text-white", "bg-teal-600 text-white",
+      "bg-violet-600 text-white", "bg-fuchsia-600 text-white", "bg-orange-600 text-white"
+    ];
+    const randomColor = colors[Math.floor(Math.random() * colors.length)];
+
+    const newBoss: User = {
+      id: "user_" + Math.random().toString(36).substr(2, 9),
+      username: username.toLowerCase().trim(),
+      name: name.trim(),
+      role: "boss",
+      groupId: username.toLowerCase().trim(),
+      groupName: groupName.trim(),
+      avatarColor: randomColor,
+      password: password.trim()
+    };
+
+    db.users.push(newBoss);
+    await putFirebaseState(db);
+
+    return { status: 201, body: newBoss };
+  }
+
   // 2. POST /api/auth/login
   if (path === "/api/auth/login" && method === "POST") {
-    const { username, password } = body || {};
+    const { username, password, groupId } = body || {};
     if (!username || !password) {
       return { status: 400, body: { error: "Thiếu tên đăng nhập hoặc mật khẩu" } };
     }
-    const user = db.users.find(u => u.username.toLowerCase() === username.toLowerCase().trim());
+
+    let user = null;
+    const bossUser = db.users.find(u => u.role === "boss" && u.username.toLowerCase() === username.toLowerCase().trim());
+    if (bossUser) {
+      user = bossUser;
+    } else if (groupId) {
+      user = db.users.find(u => u.role === "member" && u.username.toLowerCase() === username.toLowerCase().trim() && u.groupId === groupId);
+    } else {
+      const matchingUsers = db.users.filter(u => u.username.toLowerCase() === username.toLowerCase().trim());
+      if (matchingUsers.length === 1) {
+        user = matchingUsers[0];
+      } else if (matchingUsers.length > 1) {
+        return { status: 400, body: { error: "Tên đăng nhập này trùng lặp ở nhiều nhóm khác nhau. Vui lòng chọn Nhóm của bạn để đăng nhập." } };
+      }
+    }
+
     if (!user) {
-      return { status: 401, body: { error: "Tài khoản không tồn tại" } };
+      return { status: 401, body: { error: "Tài khoản không tồn tại trong nhóm đã chọn" } };
     }
     const userPassword = user.password || "123";
     if (password !== userPassword) {
@@ -272,16 +398,22 @@ async function handleClientSideAPIRequest(
   // 3. /api/users
   if (path === "/api/users") {
     if (method === "GET") {
-      return { status: 200, body: db.users };
+      const queryGroupId = searchParams.get("groupId");
+      if (!queryGroupId) {
+        return { status: 200, body: [] };
+      }
+      const filtered = db.users.filter(u => u.groupId === queryGroupId);
+      return { status: 200, body: filtered };
     }
     if (method === "POST") {
-      const { name, username, password } = body || {};
-      if (!name || !username || !password) {
-        return { status: 400, body: { error: "Thiếu thông tin nhân viên (Tên, tài khoản, mật khẩu)" } };
+      const { name, username, password, groupId, groupName } = body || {};
+      if (!name || !username || !password || !groupId) {
+        return { status: 400, body: { error: "Thiếu thông tin nhân viên (Tên, tài khoản, mật khẩu, nhóm làm việc)" } };
       }
-      const exists = db.users.some(u => u.username.toLowerCase() === username.toLowerCase().trim());
+      
+      const exists = db.users.some(u => u.username.toLowerCase() === username.toLowerCase().trim() && u.groupId === groupId);
       if (exists) {
-        return { status: 400, body: { error: "Tên tài khoản đã tồn tại" } };
+        return { status: 400, body: { error: "Tên tài khoản nhân viên đã tồn tại trong nhóm này" } };
       }
 
       const colors = [
@@ -297,7 +429,9 @@ async function handleClientSideAPIRequest(
         name: name.trim(),
         role: "member",
         avatarColor: randomColor,
-        password: password.trim()
+        password: password.trim(),
+        groupId,
+        groupName: groupName || "Nhóm làm việc"
       };
 
       db.users.push(newUser);
@@ -802,12 +936,30 @@ export function initFetchInterceptor() {
             }
           }
 
-          console.log(`[API Interceptor] Intercepted static failover request: ${method} ${path}`);
+          let forceRefresh = false;
+          if (urlString.includes("_t=")) {
+            forceRefresh = true;
+          }
+          if (init?.headers) {
+            if (init.headers instanceof Headers) {
+              if (init.headers.get("Cache-Control") === "no-cache" || init.headers.get("Pragma") === "no-cache") {
+                forceRefresh = true;
+              }
+            } else if (typeof init.headers === "object") {
+              const headersObj = init.headers as any;
+              if (headersObj["Cache-Control"] === "no-cache" || headersObj["Pragma"] === "no-cache") {
+                forceRefresh = true;
+              }
+            }
+          }
+
+          console.log(`[API Interceptor] Intercepted static failover request (forceRefresh=${forceRefresh}): ${method} ${path}`);
           const { status, body: responseBody } = await handleClientSideAPIRequest(
             path,
             method,
             body,
-            urlObj.searchParams
+            urlObj.searchParams,
+            forceRefresh
           );
 
           // Create a mock Fetch Response object conforming to standard Fetch API
